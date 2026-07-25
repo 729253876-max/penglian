@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ZodError } from "zod";
+import type { EditTraceEvent } from "@photo-ai/contracts";
 import { sanitizeEditTraceEvent } from "../src/domain/edit-trace-policy.js";
 
 const baseEvent = {
@@ -60,7 +62,7 @@ describe("edit trace policy", () => {
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { hiddenReasoning: "private deliberation" }
-    })).toThrow("Forbidden EditTrace payload key: hiddenReasoning");
+    })).toThrow(ZodError);
 
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
@@ -92,5 +94,42 @@ describe("edit trace policy", () => {
     };
 
     expect(sanitizeEditTraceEvent(event)).toEqual(event);
+  });
+
+  it("rejects normalized provider and internal sensitive payload keys", () => {
+    for (const key of [
+      "provider_api_key",
+      "provider-api-key",
+      "ProviderApiKey",
+      "chain_of_thought",
+      "provider_raw_response",
+      "internal_route"
+    ]) {
+      expect(() => sanitizeEditTraceEvent({
+        ...baseEvent,
+        payload: { [key]: "must-not-ship" }
+      })).toThrow(`Forbidden EditTrace payload key: ${key}`);
+    }
+  });
+
+  it("uses the contract default when a public trace omits payload", () => {
+    expect(sanitizeEditTraceEvent(baseEvent as unknown as EditTraceEvent)).toEqual({
+      ...baseEvent,
+      payload: {}
+    });
+  });
+
+  it("rejects null payloads through the event contract", () => {
+    expect(() => sanitizeEditTraceEvent({
+      ...baseEvent,
+      payload: null
+    } as unknown as EditTraceEvent)).toThrow(ZodError);
+  });
+
+  it("rejects nested payload values through the strict scalar boundary", () => {
+    expect(() => sanitizeEditTraceEvent({
+      ...baseEvent,
+      payload: { stage: { name: "SKIN_RETOUCH" } }
+    } as unknown as EditTraceEvent)).toThrow(ZodError);
   });
 });

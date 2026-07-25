@@ -4,20 +4,25 @@ import {
 } from "@photo-ai/contracts";
 
 const forbiddenKeys = new Set([
-  "chainOfThought",
-  "hiddenReasoning",
-  "providerApiKey",
-  "providerSecret",
-  "providerRawResponse",
-  "internalRoute"
+  "chainofthought",
+  "hiddenreasoning",
+  "providerapikey",
+  "providersecret",
+  "providerrawresponse",
+  "internalroute"
 ]);
 
+const normalizePayloadKey = (key: string): string =>
+  key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
 export function sanitizeEditTraceEvent(event: EditTraceEvent): EditTraceEvent {
-  for (const key of Object.keys(event.payload)) {
-    if (forbiddenKeys.has(key)) {
+  const parsed = EditTraceEventSchema.parse(event);
+
+  for (const key of Object.keys(parsed.payload)) {
+    if (forbiddenKeys.has(normalizePayloadKey(key))) {
       throw new Error(`Forbidden EditTrace payload key: ${key}`);
     }
   }
 
-  return EditTraceEventSchema.parse(event);
+  return parsed;
 }
