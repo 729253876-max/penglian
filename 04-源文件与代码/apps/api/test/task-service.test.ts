@@ -121,6 +121,18 @@ function successfulProviderResult(): ProviderRunResult {
   };
 }
 
+function providerResultWithMalformedFinalEvent(
+  mutate: (event: Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">) => void
+): ProviderRunResult {
+  const result = successfulProviderResult();
+  const finalEvent = result.events.at(-1);
+  if (!finalEvent) {
+    throw new Error("provider result must include a preview event");
+  }
+  mutate(finalEvent);
+  return result;
+}
+
 function providerEvent(
   type: EditTraceEvent["type"],
   phase: string,
@@ -364,6 +376,42 @@ describe("TaskService", () => {
         "TASK_FAILED"
       ]);
     }
+  });
+
+  it.each([
+    [
+      "a hidden reasoning payload field",
+      providerResultWithMalformedFinalEvent((event) => {
+        event.payload.hiddenReasoning = "private provider reasoning";
+      })
+    ],
+    [
+      "an invalid timestamp",
+      providerResultWithMalformedFinalEvent((event) => {
+        event.occurredAt = "not-an-rfc3339-timestamp";
+      })
+    ]
+  ])("does not persist a valid provider prefix before rejecting %s", async (_name, result) => {
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result)
+    );
+    const created = await service.create(portraitInput);
+
+    const finished = await service.confirmAndRunPreview(created.taskId);
+    const events = await service.getEvents(created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "DIAGNOSIS_STARTED",
+      "DIAGNOSIS_FINDING",
+      "PLAN_READY",
+      "TASK_FAILED"
+    ]);
+    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
   });
 
   it("isolates the input captured before the first asynchronous save", async () => {

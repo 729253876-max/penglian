@@ -120,9 +120,10 @@ export class TaskService {
     try {
       const result = await this.provider.runPreview(structuredClone(task.input));
       this.assertPermittedProviderResult(result, task.input);
-      for (const event of result.events) {
+      const events = this.sanitizeProviderEventBatch(task, result.events);
+      for (const event of events) {
         await this.transitionForEvent(task, event);
-        await this.append(task, event);
+        await this.appendSanitized(task, event);
       }
       task.status = transition(task.status, "SUCCEEDED");
       task.previewUrl = result.previewUrl;
@@ -231,8 +232,27 @@ export class TaskService {
       taskId: task.taskId,
       sequence: task.lastSequence + 1
     });
-    await this.repository.appendEvent(fullEvent);
-    task.lastSequence = fullEvent.sequence;
+    await this.appendSanitized(task, fullEvent);
+  }
+
+  private sanitizeProviderEventBatch(
+    task: StoredTask,
+    events: ProviderEvent[]
+  ): EditTraceEvent[] {
+    return events.map((event, index) => sanitizeEditTraceEvent({
+      ...event,
+      eventId: randomUUID(),
+      taskId: task.taskId,
+      sequence: task.lastSequence + index + 1
+    }));
+  }
+
+  private async appendSanitized(
+    task: StoredTask,
+    event: EditTraceEvent
+  ): Promise<void> {
+    await this.repository.appendEvent(event);
+    task.lastSequence = event.sequence;
     await this.repository.save(task);
   }
 
