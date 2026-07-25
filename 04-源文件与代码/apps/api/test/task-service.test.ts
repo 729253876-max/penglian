@@ -26,6 +26,16 @@ class RecordingTaskRepository extends InMemoryTaskRepository {
     this.savedStatuses.push(task.status);
     await super.save(task);
   }
+
+  public override async claimAwaitingConfirmation(
+    taskId: string
+  ): Promise<StoredTask | undefined> {
+    const task = await super.claimAwaitingConfirmation(taskId);
+    if (task) {
+      this.savedStatuses.push(task.status);
+    }
+    return task;
+  }
 }
 
 class ThrowingImageProvider implements ImageProvider {
@@ -52,6 +62,63 @@ class RetryingImageProvider implements ImageProvider {
       ]
     };
   }
+}
+
+class CountingImageProvider implements ImageProvider {
+  public calls = 0;
+
+  public async runPreview(): Promise<ProviderRunResult> {
+    this.calls += 1;
+    return successfulProviderResult();
+  }
+}
+
+class FixedResultImageProvider implements ImageProvider {
+  public constructor(private readonly result: ProviderRunResult) {}
+
+  public async runPreview(): Promise<ProviderRunResult> {
+    return this.result;
+  }
+}
+
+class FirstSaveBarrierRepository extends InMemoryTaskRepository {
+  private firstSave = true;
+  private releaseFirstSave!: () => void;
+  private readonly firstSaveReached = new Promise<void>((resolve) => {
+    this.releaseFirstSave = resolve;
+  });
+
+  public override async save(task: StoredTask): Promise<void> {
+    if (this.firstSave) {
+      this.firstSave = false;
+      await this.firstSaveReached;
+    }
+    await super.save(task);
+  }
+
+  public release(): void {
+    this.releaseFirstSave();
+  }
+}
+
+function successfulProviderResult(): ProviderRunResult {
+  return {
+    previewUrl: "https://example.invalid/demo-preview/single-flight.jpg",
+    events: [
+      providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+      providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
+        direction: "NATURAL",
+        level: "MODERATE"
+      }),
+      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"),
+      providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
+      providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+      providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
+        watermarked: true,
+        downloadable: false
+      })
+    ]
+  };
 }
 
 function providerEvent(
@@ -206,5 +273,152 @@ describe("TaskService", () => {
     ]);
     expect(repository.savedStatuses).toContain("QUALITY_CHECKING");
     expect(repository.savedStatuses).toContain("PROCESSING");
+  });
+
+  it("claims confirmation once when two requests arrive concurrently", async () => {
+    const repository = new InMemoryTaskRepository();
+    const provider = new CountingImageProvider();
+    const service = new TaskService(repository, provider);
+    const created = await service.create(portraitInput);
+
+    const results = await Promise.allSettled([
+      service.confirmAndRunPreview(created.taskId),
+      service.confirmAndRunPreview(created.taskId)
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toMatchObject([
+      { reason: new Error("TASK_CONFIRMATION_CONFLICT") }
+    ]);
+    expect(provider.calls).toBe(1);
+    await expect(service.getEvents(created.taskId, 0)).resolves.toHaveLength(9);
+  });
+
+  it("fails before persistence when a provider inserts an invalid success event", async () => {
+    const invalidResults: ProviderRunResult[] = [
+      {
+        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
+        events: [
+          providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+          providerEvent("TASK_FAILED", "DELIVERY", "preview.provider.failed")
+        ]
+      },
+      {
+        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
+        events: [
+          providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+          providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready")
+        ]
+      },
+      {
+        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
+        events: [
+          providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+          providerEvent("PARAM_DIRECTION_APPLIED", "QUALITY", "portrait.parameter.direction")
+        ]
+      },
+      {
+        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
+        events: [
+          providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+          providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.stage.unapproved.started")
+        ]
+      },
+      {
+        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
+        events: [
+          providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+          providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
+            direction: "WARM",
+            level: "MODERATE"
+          }),
+          providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"),
+          providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
+          providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+          providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
+            watermarked: true,
+            downloadable: false
+          })
+        ]
+      }
+    ];
+
+    for (const result of invalidResults) {
+      const service = new TaskService(
+        new InMemoryTaskRepository(),
+        new FixedResultImageProvider(result)
+      );
+      const created = await service.create(portraitInput);
+
+      const finished = await service.confirmAndRunPreview(created.taskId);
+      const events = await service.getEvents(created.taskId, 0);
+
+      expect(finished).toMatchObject({
+        status: "FAILED",
+        failureCode: "PREVIEW_PROVIDER_FAILED"
+      });
+      expect(events.map((event) => event.type)).toEqual([
+        "DIAGNOSIS_STARTED",
+        "DIAGNOSIS_FINDING",
+        "PLAN_READY",
+        "TASK_FAILED"
+      ]);
+    }
+  });
+
+  it("isolates the input captured before the first asynchronous save", async () => {
+    const repository = new FirstSaveBarrierRepository();
+    const service = new TaskService(repository, new MockImageProvider());
+    const input = structuredClone(portraitInput);
+
+    const creating = service.create(input);
+    input.direction = "WARM";
+    input.parameters.naturalness = 5;
+    repository.release();
+    const created = await creating;
+
+    const events = await service.getEvents(created.taskId, 0);
+    expect(events.at(-1)).toMatchObject({
+      type: "PLAN_READY",
+      payload: { direction: "NATURAL" }
+    });
+  });
+
+  it("guards repository event sequence and does not leak mutable task or event data", async () => {
+    const repository = new InMemoryTaskRepository();
+    const storedTask: StoredTask = {
+      taskId: "isolation-task",
+      status: "REVIEWING",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 0,
+      input: structuredClone(portraitInput)
+    };
+    const firstEvent: EditTraceEvent = {
+      ...providerEvent("PLAN_READY", "PLAN", "portrait.plan.natural", { direction: "NATURAL" }),
+      eventId: "event-1",
+      taskId: storedTask.taskId,
+      sequence: 1
+    };
+    await repository.save(storedTask);
+    await repository.appendEvent(firstEvent);
+
+    const found = await repository.find(storedTask.taskId);
+    const events = await repository.eventsAfter(storedTask.taskId, 0);
+    if (!found || found.input.tool !== "PORTRAIT_RETOUCH") {
+      throw new Error("stored task must be found");
+    }
+    found.input.parameters.naturalness = 5;
+    events[0]!.payload.direction = "WARM";
+
+    await expect(repository.appendEvent({ ...firstEvent, eventId: "event-duplicate" }))
+      .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
+    await expect(repository.appendEvent({ ...firstEvent, eventId: "event-gap", sequence: 3 }))
+      .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
+    await expect(repository.find(storedTask.taskId)).resolves.toMatchObject({
+      input: { parameters: { naturalness: 80 } }
+    });
+    await expect(repository.eventsAfter(storedTask.taskId, 0)).resolves.toMatchObject([
+      { payload: { direction: "NATURAL" } }
+    ]);
   });
 });

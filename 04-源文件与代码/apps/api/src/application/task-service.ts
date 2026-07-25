@@ -14,6 +14,7 @@ export interface StoredTask extends TaskSnapshot {
 export interface TaskRepository {
   save(task: StoredTask): Promise<void>;
   find(taskId: string): Promise<StoredTask | undefined>;
+  claimAwaitingConfirmation(taskId: string): Promise<StoredTask | undefined>;
   appendEvent(event: EditTraceEvent): Promise<void>;
   eventsAfter(taskId: string, sequence: number): Promise<EditTraceEvent[]>;
 }
@@ -29,6 +30,32 @@ export interface ImageProvider {
 
 type ProviderEvent = Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">;
 
+type ProviderEventRule = readonly [
+  ProviderEvent["type"],
+  string,
+  string
+];
+
+const permittedProviderSequences: readonly (readonly ProviderEventRule[])[] = [
+  [
+    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
+    ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
+    ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"],
+    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
+    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"],
+    ["PREVIEW_READY", "DELIVERY", "preview.ready"]
+  ],
+  [
+    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
+    ["QUALITY_CHECK_FAILED", "QUALITY", "quality.identity.failed"],
+    ["RETRY_STARTED", "RETOUCH", "portrait.retry.started"],
+    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retry.started"],
+    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.retry.started"],
+    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"],
+    ["PREVIEW_READY", "DELIVERY", "preview.ready"]
+  ]
+];
+
 export class TaskService {
   public constructor(
     private readonly repository: TaskRepository,
@@ -40,12 +67,14 @@ export class TaskService {
       throw new Error("STAGE_A_UNSUPPORTED_TOOL");
     }
 
+    const capturedInput = structuredClone(input);
+
     const task: StoredTask = {
       taskId: randomUUID(),
       status: "REVIEWING",
-      tool: input.tool,
+      tool: capturedInput.tool,
       lastSequence: 0,
-      input
+      input: capturedInput
     };
     await this.repository.save(task);
 
@@ -73,7 +102,7 @@ export class TaskService {
       occurredAt: new Date().toISOString(),
       visibility: "PREVIEW",
       copyKey: "portrait.plan.natural",
-      payload: { direction: input.direction }
+      payload: { direction: task.input.direction }
     });
     task.status = transition(task.status, "AWAITING_CONFIRMATION");
     await this.repository.save(task);
@@ -81,14 +110,16 @@ export class TaskService {
   }
 
   public async confirmAndRunPreview(taskId: string): Promise<TaskSnapshot> {
-    const task = await this.requireTask(taskId);
-    task.status = transition(task.status, "QUEUED");
-    await this.repository.save(task);
+    const task = await this.repository.claimAwaitingConfirmation(taskId);
+    if (!task) {
+      throw new Error("TASK_CONFIRMATION_CONFLICT");
+    }
     task.status = transition(task.status, "PROCESSING");
     await this.repository.save(task);
 
     try {
-      const result = await this.provider.runPreview(task.input);
+      const result = await this.provider.runPreview(structuredClone(task.input));
+      this.assertPermittedProviderResult(result, task.input);
       for (const event of result.events) {
         await this.transitionForEvent(task, event);
         await this.append(task, event);
@@ -140,6 +171,51 @@ export class TaskService {
     }
   }
 
+  private assertPermittedProviderResult(
+    result: ProviderRunResult,
+    input: CreateTaskInput
+  ): void {
+    try {
+      const url = new URL(result.previewUrl);
+      if (url.protocol !== "https:") {
+        throw new Error("Provider previews must use HTTPS");
+      }
+    } catch {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    const expectedSequence = permittedProviderSequences.find((sequence) =>
+      sequence.length === result.events.length &&
+      sequence.every(([type, phase, copyKey], index) => {
+        const event = result.events[index];
+        return event?.type === type &&
+          event.phase === phase &&
+          event.copyKey === copyKey &&
+          event.visibility === "PREVIEW";
+      })
+    );
+
+    if (!expectedSequence) {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    const parameterEvent = result.events.find(
+      (event) => event.type === "PARAM_DIRECTION_APPLIED"
+    );
+    if (parameterEvent && parameterEvent.payload.direction !== input.direction) {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    const previewEvent = result.events.at(-1);
+    if (
+      previewEvent?.type !== "PREVIEW_READY" ||
+      previewEvent.payload.watermarked !== true ||
+      previewEvent.payload.downloadable !== false
+    ) {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+  }
+
   private async requireTask(taskId: string): Promise<StoredTask> {
     const task = await this.repository.find(taskId);
     if (!task) {
@@ -155,8 +231,8 @@ export class TaskService {
       taskId: task.taskId,
       sequence: task.lastSequence + 1
     });
-    task.lastSequence = fullEvent.sequence;
     await this.repository.appendEvent(fullEvent);
+    task.lastSequence = fullEvent.sequence;
     await this.repository.save(task);
   }
 
