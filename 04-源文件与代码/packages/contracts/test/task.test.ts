@@ -59,6 +59,30 @@ describe("task contracts", () => {
     }).tool).toBe("PORTRAIT_RETOUCH");
   });
 
+  it("rejects old-photo parameters attached to a portrait task", () => {
+    expect(CreateTaskInputSchema.safeParse({
+      tool: "PORTRAIT_RETOUCH",
+      inputAssetId: "demo-portrait-001",
+      direction: "NATURAL",
+      parameters: {
+        brightness: 0,
+        warmth: 0,
+        naturalness: 80,
+        colorizationRequested: false
+      }
+    }).success).toBe(false);
+  });
+
+  it("rejects an unknown top-level task field", () => {
+    expect(CreateTaskInputSchema.safeParse({
+      tool: "QUALITY_ENHANCE",
+      inputAssetId: "demo-quality-001",
+      direction: "QUALITY_FIRST",
+      parameters: { outputTier: "HD", detailPreservation: 85 },
+      unexpectedDirective: "must-not-be-discarded"
+    }).success).toBe(false);
+  });
+
   it("accepts exactly the four V1 tools", () => {
     expect([
       "PORTRAIT_RETOUCH",
@@ -104,6 +128,18 @@ describe("task contracts", () => {
     })).toThrow();
   });
 
+  it("accepts explicitly requested and confirmed old-photo colorization", () => {
+    expect(CreateTaskInputSchema.parse({
+      tool: "OLD_PHOTO_RESTORE",
+      inputAssetId: "demo-old-photo-001",
+      direction: "FAITHFUL_RESTORE",
+      parameters: { colorizationRequested: true, colorizationConfirmed: true }
+    }).parameters).toEqual({
+      colorizationRequested: true,
+      colorizationConfirmed: true
+    });
+  });
+
   it("rejects an event without sequence", () => {
     expect(EditTraceEventSchema.safeParse({
       eventId: "evt-1",
@@ -135,6 +171,51 @@ describe("task contracts", () => {
     ].map((field) => EditTraceEventSchema.safeParse({
       ...baseEvent,
       payload: { [field]: "must-not-ship" }
+    }).success)).toEqual([false, false, false]);
+  });
+
+  it("rejects normalized sensitive trace payload keys and sensitive event fields", () => {
+    const baseEvent = {
+      eventId: "evt-sensitive",
+      taskId: "task-1",
+      sequence: 1,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: "PREVIEW",
+      copyKey: "trace.plan.ready"
+    };
+
+    expect([
+      "originalUrl",
+      "originalImageUrl",
+      "original_url",
+      "original_image_url",
+      "apiKey",
+      "api_key",
+      "hiddenReasoning",
+      "hidden_reasoning"
+    ].map((key) => EditTraceEventSchema.safeParse({
+      ...baseEvent,
+      payload: { [key]: "must-not-ship" }
+    }).success)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]);
+
+    expect([
+      "hiddenReasoning",
+      "apiKey",
+      "api_key"
+    ].map((key) => EditTraceEventSchema.safeParse({
+      ...baseEvent,
+      [key]: "must-not-ship"
     }).success)).toEqual([false, false, false]);
   });
 

@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+const sensitiveEditTraceFieldNames = new Set([
+  "hiddenreasoning",
+  "apikey",
+  "originalurl",
+  "originalimageurl"
+]);
+
+const normalizeFieldName = (fieldName: string) => fieldName
+  .replaceAll("_", "")
+  .replaceAll("-", "")
+  .toLowerCase();
+
 export const ToolTypeSchema = z.enum([
   "PORTRAIT_RETOUCH",
   "QUALITY_ENHANCE",
@@ -51,15 +63,9 @@ export const EditTraceEventSchema = z.object({
     z.number(),
     z.boolean()
   ])).default({})
-}).superRefine((event, context) => {
-  const forbiddenPayloadKeys = new Set([
-    "hiddenreasoning",
-    "apikey",
-    "originalimageurl"
-  ]);
-
+}).strict().superRefine((event, context) => {
   for (const key of Object.keys(event.payload)) {
-    if (forbiddenPayloadKeys.has(key.toLowerCase())) {
+    if (sensitiveEditTraceFieldNames.has(normalizeFieldName(key))) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["payload", key],
@@ -77,8 +83,8 @@ const PortraitTaskInputSchema = z.object({
     brightness: z.number().min(-100).max(100),
     warmth: z.number().min(-100).max(100),
     naturalness: z.number().min(0).max(100)
-  })
-});
+  }).strict()
+}).strict();
 
 const QualityEnhanceTaskInputSchema = z.object({
   tool: z.literal("QUALITY_ENHANCE"),
@@ -87,8 +93,8 @@ const QualityEnhanceTaskInputSchema = z.object({
   parameters: z.object({
     outputTier: z.string().min(1),
     detailPreservation: z.number().min(0).max(100)
-  })
-});
+  }).strict()
+}).strict();
 
 const ObjectRemovalTaskInputSchema = z.object({
   tool: z.literal("OBJECT_REMOVAL"),
@@ -96,8 +102,8 @@ const ObjectRemovalTaskInputSchema = z.object({
   direction: z.literal("REMOVE_CONFIRMED_TARGET"),
   parameters: z.object({
     confirmedMaskAssetId: z.string().min(1)
-  })
-});
+  }).strict()
+}).strict();
 
 const OldPhotoRestoreTaskInputSchema = z.object({
   tool: z.literal("OLD_PHOTO_RESTORE"),
@@ -106,8 +112,8 @@ const OldPhotoRestoreTaskInputSchema = z.object({
   parameters: z.object({
     colorizationRequested: z.boolean().default(false),
     colorizationConfirmed: z.boolean().default(false)
-  })
-});
+  }).strict()
+}).strict();
 
 export const CreateTaskInputSchema = z.discriminatedUnion("tool", [
   PortraitTaskInputSchema,
