@@ -8,7 +8,6 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:bootstrap": "vitest run --passWithNoTests",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @photo-ai/api"
   },
