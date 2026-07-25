@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+miniprogram_npm/
+.DS_Store
+*.log

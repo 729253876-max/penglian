@@ -1,0 +1,14 @@
+{
+  "name": "@photo-ai/miniprogram",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@photo-ai/contracts": "*"
+  },
+  "devDependencies": {
+    "miniprogram-api-typings": "^4.0.0"
+  }
+}
