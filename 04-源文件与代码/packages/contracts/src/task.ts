@@ -1,17 +1,5 @@
 import { z } from "zod";
 
-const sensitiveEditTraceFieldNames = new Set([
-  "hiddenreasoning",
-  "apikey",
-  "originalurl",
-  "originalimageurl"
-]);
-
-const normalizeFieldName = (fieldName: string) => fieldName
-  .replaceAll("_", "")
-  .replaceAll("-", "")
-  .toLowerCase();
-
 export const ToolTypeSchema = z.enum([
   "PORTRAIT_RETOUCH",
   "QUALITY_ENHANCE",
@@ -48,28 +36,184 @@ export const EditTraceEventTypeSchema = z.enum([
 ]);
 
 export const EditTraceVisibilitySchema = z.enum(["PREVIEW", "UNLOCKED"]);
+export const PortraitDirectionSchema = z.enum(["NATURAL", "BRIGHT", "WARM"]);
+
+export const EditTracePhaseSchema = z.enum([
+  "DIAGNOSIS",
+  "PLAN",
+  "RETOUCH",
+  "QUALITY",
+  "DELIVERY"
+]);
+
+export const EditTraceCopyKeySchema = z.enum([
+  "portrait.diagnosis.started",
+  "portrait.diagnosis.light",
+  "portrait.plan.natural",
+  "portrait.stage.retouch.started",
+  "portrait.parameter.direction",
+  "portrait.stage.retouch.completed",
+  "quality.started",
+  "quality.identity.failed",
+  "portrait.retry.started",
+  "portrait.stage.retry.started",
+  "quality.retry.started",
+  "quality.identity.passed",
+  "preview.ready",
+  "preview.provider.failed"
+]);
+
+const EmptyEditTracePayloadSchema = z.object({}).strict();
+const DiagnosisFindingPayloadSchema = z.object({
+  finding: z.literal("FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT")
+}).strict();
+const PlanReadyPayloadSchema = z.object({
+  direction: PortraitDirectionSchema
+}).strict();
+const StagePayloadSchema = z.object({
+  stage: z.literal("LOCAL_LIGHT_AND_SKIN").optional()
+}).strict();
+const ParameterDirectionPayloadSchema = z.object({
+  direction: PortraitDirectionSchema,
+  level: z.literal("MODERATE")
+}).strict();
+const QualityCheckPassedPayloadSchema = z.object({
+  check: z.literal("IDENTITY_CONSISTENCY").optional()
+}).strict();
+const QualityCheckFailedPayloadSchema = z.object({
+  check: z.literal("IDENTITY_CONSISTENCY").optional(),
+  code: z.literal("IDENTITY_CHECK_FAILED").optional()
+}).strict();
+const RetryStartedPayloadSchema = z.object({
+  attempt: z.number().int().positive().max(10)
+}).strict();
+const PreviewReadyPayloadSchema = z.object({
+  watermarked: z.literal(true),
+  downloadable: z.literal(false)
+}).strict();
+const TaskFailedPayloadSchema = z.object({
+  code: z.literal("PREVIEW_PROVIDER_FAILED")
+}).strict();
+
+const EditTracePayloadSchema = z.union([
+  EmptyEditTracePayloadSchema,
+  DiagnosisFindingPayloadSchema,
+  PlanReadyPayloadSchema,
+  StagePayloadSchema,
+  ParameterDirectionPayloadSchema,
+  QualityCheckPassedPayloadSchema,
+  QualityCheckFailedPayloadSchema,
+  RetryStartedPayloadSchema,
+  PreviewReadyPayloadSchema,
+  TaskFailedPayloadSchema
+]);
+
+const editTraceRules = {
+  DIAGNOSIS_STARTED: {
+    phase: "DIAGNOSIS",
+    copyKeys: ["portrait.diagnosis.started"],
+    payload: EmptyEditTracePayloadSchema
+  },
+  DIAGNOSIS_FINDING: {
+    phase: "DIAGNOSIS",
+    copyKeys: ["portrait.diagnosis.light"],
+    payload: DiagnosisFindingPayloadSchema
+  },
+  PLAN_READY: {
+    phase: "PLAN",
+    copyKeys: ["portrait.plan.natural"],
+    payload: PlanReadyPayloadSchema
+  },
+  STAGE_STARTED: {
+    phase: "RETOUCH",
+    copyKeys: [
+      "portrait.stage.retouch.started",
+      "portrait.stage.retry.started"
+    ],
+    payload: StagePayloadSchema
+  },
+  STAGE_COMPLETED: {
+    phase: "RETOUCH",
+    copyKeys: ["portrait.stage.retouch.completed"],
+    payload: StagePayloadSchema
+  },
+  PARAM_DIRECTION_APPLIED: {
+    phase: "RETOUCH",
+    copyKeys: ["portrait.parameter.direction"],
+    payload: ParameterDirectionPayloadSchema
+  },
+  QUALITY_CHECK_STARTED: {
+    phase: "QUALITY",
+    copyKeys: ["quality.started", "quality.retry.started"],
+    payload: EmptyEditTracePayloadSchema
+  },
+  QUALITY_CHECK_PASSED: {
+    phase: "QUALITY",
+    copyKeys: ["quality.identity.passed"],
+    payload: QualityCheckPassedPayloadSchema
+  },
+  QUALITY_CHECK_FAILED: {
+    phase: "QUALITY",
+    copyKeys: ["quality.identity.failed"],
+    payload: QualityCheckFailedPayloadSchema
+  },
+  RETRY_STARTED: {
+    phase: "RETOUCH",
+    copyKeys: ["portrait.retry.started"],
+    payload: RetryStartedPayloadSchema
+  },
+  PREVIEW_READY: {
+    phase: "DELIVERY",
+    copyKeys: ["preview.ready"],
+    payload: PreviewReadyPayloadSchema
+  },
+  TASK_FAILED: {
+    phase: "DELIVERY",
+    copyKeys: ["preview.provider.failed"],
+    payload: TaskFailedPayloadSchema
+  }
+} satisfies Record<
+  z.infer<typeof EditTraceEventTypeSchema>,
+  {
+    phase: z.infer<typeof EditTracePhaseSchema>;
+    copyKeys: readonly z.infer<typeof EditTraceCopyKeySchema>[];
+    payload: z.ZodType;
+  }
+>;
 
 export const EditTraceEventSchema = z.object({
   eventId: z.string().min(1),
   taskId: z.string().min(1),
   sequence: z.number().int().positive(),
   type: EditTraceEventTypeSchema,
-  phase: z.string().min(1),
+  phase: EditTracePhaseSchema,
   occurredAt: z.string().datetime(),
   visibility: EditTraceVisibilitySchema,
-  copyKey: z.string().min(1),
-  payload: z.record(z.string(), z.union([
-    z.string(),
-    z.number(),
-    z.boolean()
-  ])).default({})
+  copyKey: EditTraceCopyKeySchema,
+  payload: EditTracePayloadSchema
 }).strict().superRefine((event, context) => {
-  for (const key of Object.keys(event.payload)) {
-    if (sensitiveEditTraceFieldNames.has(normalizeFieldName(key))) {
+  const rule = editTraceRules[event.type];
+  if (event.phase !== rule.phase) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["phase"],
+      message: `Invalid phase for ${event.type}`
+    });
+  }
+  if (!(rule.copyKeys as readonly string[]).includes(event.copyKey)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["copyKey"],
+      message: `Invalid copy key for ${event.type}`
+    });
+  }
+
+  const payloadResult = rule.payload.safeParse(event.payload);
+  if (!payloadResult.success) {
+    for (const issue of payloadResult.error.issues) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["payload", key],
-        message: "Sensitive fields are not permitted in edit traces"
+        ...issue,
+        path: ["payload", ...issue.path]
       });
     }
   }
@@ -78,7 +222,7 @@ export const EditTraceEventSchema = z.object({
 const PortraitTaskInputSchema = z.object({
   tool: z.literal("PORTRAIT_RETOUCH"),
   inputAssetId: z.string().min(1),
-  direction: z.enum(["NATURAL", "BRIGHT", "WARM"]),
+  direction: PortraitDirectionSchema,
   parameters: z.object({
     brightness: z.number().min(-100).max(100),
     warmth: z.number().min(-100).max(100),

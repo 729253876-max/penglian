@@ -116,6 +116,49 @@ describe("tasks API", () => {
     }
   });
 
+  it.each([
+    [
+      "an unknown portrait asset",
+      {
+        ...portraitInput,
+        inputAssetId: "completely-unknown-asset"
+      }
+    ],
+    [
+      "an unsupported portrait direction",
+      {
+        ...portraitInput,
+        direction: "WARM"
+      }
+    ],
+    [
+      "unregistered demo parameters",
+      {
+        ...portraitInput,
+        parameters: {
+          ...portraitInput.parameters,
+          brightness: 25
+        }
+      }
+    ]
+  ])("rejects %s at the stage-A API boundary", async (_name, payload) => {
+    const app = buildApp();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks",
+        payload
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({
+        code: "STAGE_A_UNSUPPORTED_DEMO_INPUT"
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns a validation error for an invalid create body", async () => {
     const app = buildApp();
     try {

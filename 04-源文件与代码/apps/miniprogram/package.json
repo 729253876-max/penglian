@@ -2,13 +2,13 @@
   "name": "@photo-ai/miniprogram",
   "private": true,
   "scripts": {
+    "build:runtime-verify": "tsc -p tsconfig.runtime.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@photo-ai/contracts": "*"
+    "typecheck": "tsc --noEmit",
+    "verify:runtime": "npm run build:runtime-verify && node scripts/verify-runtime.cjs"
   },
   "devDependencies": {
+    "@photo-ai/contracts": "*",
     "miniprogram-api-typings": "^4.0.0"
   }
 }

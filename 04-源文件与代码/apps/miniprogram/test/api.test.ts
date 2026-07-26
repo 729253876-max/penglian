@@ -86,7 +86,15 @@ describe("miniprogram API client", () => {
     ["orders items backwards", 0, { items: [event("evt-2", 2), event("evt-1", 1)], nextSequence: 1 }],
     ["includes an item at or before the cursor", 1, { items: [event("evt-1", 1)], nextSequence: 1 }],
     ["does not match the final item cursor", 0, { items: [event("evt-2", 2)], nextSequence: 3 }],
-    ["repeats a sequence", 0, { items: [event("evt-1", 1), event("evt-2", 1)], nextSequence: 1 }]
+    ["repeats a sequence", 0, { items: [event("evt-1", 1), event("evt-2", 1)], nextSequence: 1 }],
+    ["jumps over a missing sequence", 0, {
+      items: [event("evt-2", 2), event("evt-5", 5)],
+      nextSequence: 5
+    }],
+    ["contains an event from a different task", 0, {
+      items: [{ ...event("evt-1", 1), taskId: "task-2" }],
+      nextSequence: 1
+    }]
   ])("rejects event pages that %s", async (_name, afterSequence, data) => {
     vi.stubGlobal("wx", {
       request(options: WechatMiniprogram.RequestOption) {
@@ -99,9 +107,9 @@ describe("miniprogram API client", () => {
 
   it.each([
     ["keeps the cursor for an empty page", 4, { items: [], nextSequence: 4 }],
-    ["allows strictly increasing pages with sequence gaps", 0, {
-      items: [event("evt-2", 2), event("evt-5", 5)],
-      nextSequence: 5
+    ["accepts a continuous incremental page", 0, {
+      items: [event("evt-1", 1), event("evt-2", 2)],
+      nextSequence: 2
     }]
   ])("accepts event pages that %s", async (_name, afterSequence, data) => {
     vi.stubGlobal("wx", {

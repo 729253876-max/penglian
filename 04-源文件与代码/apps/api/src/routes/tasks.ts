@@ -21,6 +21,11 @@ function sendDomainError(reply: FastifyReply, error: unknown) {
   if (message === "STAGE_A_UNSUPPORTED_TOOL") {
     return reply.code(422).send({ code: "STAGE_A_UNSUPPORTED_TOOL" });
   }
+  if (message === "STAGE_A_UNSUPPORTED_DEMO_INPUT") {
+    return reply.code(422).send({
+      code: "STAGE_A_UNSUPPORTED_DEMO_INPUT"
+    });
+  }
   return reply.code(500).send({ code: "INTERNAL_ERROR" });
 }
 

@@ -6,22 +6,35 @@ type PageConfig = Record<string, any> & { data?: Record<string, unknown> };
 const api = {
   createTask: vi.fn(),
   getEvents: vi.fn(),
+  getTask: vi.fn(),
   runPreview: vi.fn()
 };
+const storage = new Map<string, unknown>();
+const reduceMotionStorageKey = "photo-ai:reduce-motion";
 
 vi.mock("../miniprogram/services/api", () => api);
 
 function event(eventId: string, sequence: number, type: EditTraceEvent["type"] = "STAGE_STARTED"): EditTraceEvent {
+  const failed = type === "TASK_FAILED";
+  const ready = type === "PREVIEW_READY";
   return {
     eventId,
     taskId: "task-1",
     sequence,
     type,
-    phase: type === "PREVIEW_READY" ? "PREVIEW" : "RETOUCH",
+    phase: failed || ready ? "DELIVERY" : "RETOUCH",
     occurredAt: "2026-07-24T00:00:00.000Z",
     visibility: "PREVIEW",
-    copyKey: type === "PREVIEW_READY" ? "preview.ready" : "portrait.stage.retouch.started",
-    payload: {}
+    copyKey: failed
+      ? "preview.provider.failed"
+      : ready
+        ? "preview.ready"
+        : "portrait.stage.retouch.started",
+    payload: failed
+      ? { code: "PREVIEW_PROVIDER_FAILED" }
+      : ready
+        ? { watermarked: true, downloadable: false }
+        : {}
   };
 }
 
@@ -39,7 +52,15 @@ function pageInstance(config: PageConfig) {
 async function loadPage(path: string): Promise<PageConfig> {
   let config: PageConfig | undefined;
   vi.stubGlobal("Page", (definition: PageConfig) => { config = definition; });
-  vi.stubGlobal("wx", { navigateTo: vi.fn(), redirectTo: vi.fn() });
+  vi.stubGlobal("wx", {
+    getStorageSync: vi.fn((key: string) => storage.get(key)),
+    navigateBack: vi.fn(),
+    navigateTo: vi.fn(),
+    redirectTo: vi.fn(),
+    setStorageSync: vi.fn((key: string, value: unknown) => {
+      storage.set(key, value);
+    })
+  });
   await import(path);
   if (!config) throw new Error("page was not registered");
   return config;
@@ -50,6 +71,7 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  storage.clear();
 });
 
 describe("plan page", () => {
@@ -67,6 +89,25 @@ describe("plan page", () => {
     deferred.resolve({ taskId: "task-1" });
     await Promise.all([first, second]);
     expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/live/index?taskId=task-1" });
+  });
+
+  it("keeps a pending submission locked across hide and show", async () => {
+    const deferred = Promise.withResolvers<{ taskId: string }>();
+    api.createTask.mockReturnValueOnce(deferred.promise);
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page);
+    const first = config.startPreview.call(page);
+    config.onShow.call(page);
+    const second = config.startPreview.call(page);
+
+    expect(page.data.submitting).toBe(true);
+    expect(api.createTask).toHaveBeenCalledTimes(1);
+
+    deferred.resolve({ taskId: "task-1" });
+    await Promise.all([first, second]);
+    expect(wx.navigateTo).toHaveBeenCalledTimes(1);
   });
 
   it("restores the primary action after task creation fails", async () => {
@@ -126,7 +167,19 @@ describe("live page", () => {
 
   it("reveals deduplicated server events and becomes ready only after the real preview event", async () => {
     vi.useFakeTimers();
-    api.runPreview.mockResolvedValueOnce({ taskId: "task-1" });
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "SUCCEEDED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 2,
+      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
+    });
     api.getEvents.mockResolvedValueOnce({ items: [event("one", 1), event("one", 1), event("ready", 2, "PREVIEW_READY")], nextSequence: 2 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -138,9 +191,215 @@ describe("live page", () => {
     expect(page.data.lastSequence).toBe(2);
   });
 
+  it("restores the saved reduced-motion preference and reveals a batch without delay", async () => {
+    vi.useFakeTimers();
+    storage.set(reduceMotionStorageKey, true);
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 0
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "PROCESSING",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 2
+    });
+    api.getEvents.mockResolvedValueOnce({
+      items: [
+        event("one", 1),
+        event("ready", 2, "PREVIEW_READY")
+      ],
+      nextSequence: 2
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(page.data.reduceMotion).toBe(true);
+    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.ready).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("flushes pending events and persists when reduced motion is enabled", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 0
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "PROCESSING",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 2
+    });
+    api.getEvents.mockResolvedValueOnce({
+      items: [
+        event("one", 1),
+        event("ready", 2, "PREVIEW_READY")
+      ],
+      nextSequence: 2
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(page.data.visibleEvents).toEqual([]);
+
+    config.toggleReduceMotion.call(page, { detail: { value: true } });
+
+    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.ready).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(wx.setStorageSync).toHaveBeenCalledWith(
+      reduceMotionStorageKey,
+      true
+    );
+  });
+
+  it("restores a succeeded task immediately without running the preview again", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "SUCCEEDED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 2,
+      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
+    });
+    api.getEvents.mockResolvedValueOnce({
+      items: [
+        event("one", 1),
+        event("ready", 2, "PREVIEW_READY")
+      ],
+      nextSequence: 2
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.getTask).toHaveBeenCalledWith("task-1");
+    expect(api.runPreview).not.toHaveBeenCalled();
+    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.ready).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops permanently on a provider failure and exposes stable recovery actions", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "FAILED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 4,
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    api.getEvents.mockResolvedValue({
+      items: [
+        event("one", 1),
+        event("two", 2),
+        event("three", 3),
+        event("failed", 4, "TASK_FAILED")
+      ],
+      nextSequence: 4
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(page.data.failed).toBe(true);
+    expect(page.data.failureCode).toBe("PREVIEW_PROVIDER_FAILED");
+    expect(page.data.visibleEvents.at(-1)).toMatchObject({
+      type: "TASK_FAILED",
+      text: expect.stringContaining("失败")
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(api.getEvents).toHaveBeenCalledTimes(1);
+
+    config.restart.call(page);
+    expect(wx.redirectTo).toHaveBeenCalledWith({
+      url: "/pages/plan/index"
+    });
+    config.goBack.call(page);
+    expect(wx.navigateBack).toHaveBeenCalledWith({ delta: 1 });
+  });
+
+  it("restores a failed task without polling or attempting another preview", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "FAILED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 4,
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    api.getEvents.mockResolvedValueOnce({
+      items: [
+        event("one", 1),
+        event("two", 2),
+        event("three", 3),
+        event("failed", 4, "TASK_FAILED")
+      ],
+      nextSequence: 4
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.runPreview).not.toHaveBeenCalled();
+    expect(api.getEvents).toHaveBeenCalledTimes(1);
+    expect(page.data.failed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("clears timers and never reveals an event after unload", async () => {
     vi.useFakeTimers();
-    api.runPreview.mockResolvedValueOnce({ taskId: "task-1" });
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "PROCESSING",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
     api.getEvents.mockResolvedValueOnce({ items: [event("one", 1)], nextSequence: 1 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -155,6 +414,19 @@ describe("live page", () => {
   it("keeps each page runtime isolated when an unloaded page resolves after a new load", async () => {
     vi.useFakeTimers();
     const firstPreview = Promise.withResolvers<{ taskId: string }>();
+    api.getTask
+      .mockResolvedValueOnce({
+        taskId: "task-a",
+        status: "AWAITING_CONFIRMATION",
+        tool: "PORTRAIT_RETOUCH",
+        lastSequence: 3
+      })
+      .mockResolvedValueOnce({
+        taskId: "task-b",
+        status: "AWAITING_CONFIRMATION",
+        tool: "PORTRAIT_RETOUCH",
+        lastSequence: 3
+      });
     api.runPreview.mockReturnValueOnce(firstPreview.promise).mockResolvedValueOnce({ taskId: "task-b" });
     api.getEvents.mockResolvedValueOnce({ items: [event("b-ready", 1, "PREVIEW_READY")], nextSequence: 1 });
     const config = await loadPage("../miniprogram/pages/live/index");
@@ -178,7 +450,18 @@ describe("live page", () => {
   it("does not overlap a retry with its scheduled poll", async () => {
     vi.useFakeTimers();
     const retryRequest = Promise.withResolvers<{ items: EditTraceEvent[]; nextSequence: number }>();
-    api.runPreview.mockResolvedValueOnce({ taskId: "task-1" });
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "AWAITING_CONFIRMATION",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
+    api.runPreview.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "PROCESSING",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 3
+    });
     api.getEvents.mockResolvedValueOnce({ items: [], nextSequence: 0 }).mockReturnValueOnce(retryRequest.promise);
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);

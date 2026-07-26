@@ -1,10 +1,12 @@
-import {
-  EditTraceEventSchema,
-  TaskSnapshotSchema,
-  type CreateTaskInput,
-  type EditTraceEvent,
-  type TaskSnapshot
+import type {
+  CreateTaskInput,
+  EditTraceEvent,
+  TaskSnapshot
 } from "@photo-ai/contracts";
+import {
+  parseEditTraceEvent,
+  parseTaskSnapshot
+} from "./runtime-contracts.js";
 
 const API_BASE = "http://127.0.0.1:3100";
 
@@ -21,15 +23,10 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function parseTaskSnapshot(value: unknown): TaskSnapshot {
-  const parsed = TaskSnapshotSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("API_RESPONSE_INVALID");
-  }
-  return parsed.data;
-}
-
-function parseEventPage(afterSequence: number): (value: unknown) => EventPage {
+function parseEventPage(
+  expectedTaskId: string,
+  afterSequence: number
+): (value: unknown) => EventPage {
   return (value) => {
     if (!isRecord(value) || !Array.isArray(value.items) || !isNonNegativeSafeInteger(value.nextSequence)) {
       throw new Error("API_RESPONSE_INVALID");
@@ -37,12 +34,15 @@ function parseEventPage(afterSequence: number): (value: unknown) => EventPage {
 
     let previousSequence = afterSequence;
     const items = value.items.map((event) => {
-      const parsed = EditTraceEventSchema.safeParse(event);
-      if (!parsed.success || parsed.data.sequence <= previousSequence) {
+      const parsed = parseEditTraceEvent(event);
+      if (
+        parsed.taskId !== expectedTaskId ||
+        parsed.sequence !== previousSequence + 1
+      ) {
         throw new Error("API_RESPONSE_INVALID");
       }
-      previousSequence = parsed.data.sequence;
-      return parsed.data;
+      previousSequence = parsed.sequence;
+      return parsed;
     });
 
     if (value.nextSequence !== previousSequence) {
@@ -108,5 +108,5 @@ export const getEvents = (taskId: string, afterSequence: number) => {
   return request<EventPage>({
     method: "GET",
     url: `/v1/tasks/${taskPath(taskId)}/events?afterSequence=${afterSequence}`
-  }, parseEventPage(afterSequence));
+  }, parseEventPage(taskId, afterSequence));
 };

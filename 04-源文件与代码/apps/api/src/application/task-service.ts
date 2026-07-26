@@ -5,6 +5,15 @@ import type {
   TaskSnapshot
 } from "@photo-ai/contracts";
 import { sanitizeEditTraceEvent } from "../domain/edit-trace-policy.js";
+import {
+  occurredAt,
+  systemClock,
+  type Clock
+} from "../domain/clock.js";
+import {
+  requireStageADemoProfile,
+  type PortraitTaskInput
+} from "../domain/stage-a-demo-catalog.js";
 import { transition } from "../domain/task-machine.js";
 
 export interface StoredTask extends TaskSnapshot {
@@ -59,7 +68,8 @@ const permittedProviderSequences: readonly (readonly ProviderEventRule[])[] = [
 export class TaskService {
   public constructor(
     private readonly repository: TaskRepository,
-    private readonly provider: ImageProvider
+    private readonly provider: ImageProvider,
+    private readonly clock: Clock = systemClock
   ) {}
 
   public async create(input: CreateTaskInput): Promise<TaskSnapshot> {
@@ -67,6 +77,7 @@ export class TaskService {
       throw new Error("STAGE_A_UNSUPPORTED_TOOL");
     }
 
+    const demoProfile = requireStageADemoProfile(input);
     const capturedInput = structuredClone(input);
 
     const task: StoredTask = {
@@ -83,7 +94,7 @@ export class TaskService {
     await this.append(task, {
       type: "DIAGNOSIS_STARTED",
       phase: "DIAGNOSIS",
-      occurredAt: new Date().toISOString(),
+      occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
       copyKey: "portrait.diagnosis.started",
       payload: {}
@@ -91,18 +102,18 @@ export class TaskService {
     await this.append(task, {
       type: "DIAGNOSIS_FINDING",
       phase: "DIAGNOSIS",
-      occurredAt: new Date().toISOString(),
+      occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
-      copyKey: "portrait.diagnosis.light",
-      payload: { finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT" }
+      copyKey: demoProfile.diagnosis.copyKey,
+      payload: { finding: demoProfile.diagnosis.finding }
     });
     await this.append(task, {
       type: "PLAN_READY",
       phase: "PLAN",
-      occurredAt: new Date().toISOString(),
+      occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
-      copyKey: "portrait.plan.natural",
-      payload: { direction: task.input.direction }
+      copyKey: demoProfile.plan.copyKey,
+      payload: { direction: demoProfile.direction }
     });
     task.status = transition(task.status, "AWAITING_CONFIRMATION");
     await this.repository.save(task);
@@ -130,14 +141,15 @@ export class TaskService {
       await this.repository.save(task);
     } catch {
       task.status = transition(task.status, "FAILED");
-      task.failureCode = "PREVIEW_PROVIDER_FAILED";
+      const failureCode = "PREVIEW_PROVIDER_FAILED" as const;
+      task.failureCode = failureCode;
       await this.append(task, {
         type: "TASK_FAILED",
         phase: "DELIVERY",
-        occurredAt: new Date().toISOString(),
+        occurredAt: occurredAt(this.clock),
         visibility: "PREVIEW",
         copyKey: "preview.provider.failed",
-        payload: { code: task.failureCode }
+        payload: { code: failureCode }
       });
       await this.repository.save(task);
     }
@@ -176,12 +188,13 @@ export class TaskService {
     result: ProviderRunResult,
     input: CreateTaskInput
   ): void {
-    try {
-      const url = new URL(result.previewUrl);
-      if (url.protocol !== "https:") {
-        throw new Error("Provider previews must use HTTPS");
-      }
-    } catch {
+    if (input.tool !== "PORTRAIT_RETOUCH") {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+    const demoProfile = requireStageADemoProfile(
+      input as PortraitTaskInput
+    );
+    if (result.previewUrl !== demoProfile.preview.url) {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
@@ -203,15 +216,21 @@ export class TaskService {
     const parameterEvent = result.events.find(
       (event) => event.type === "PARAM_DIRECTION_APPLIED"
     );
-    if (parameterEvent && parameterEvent.payload.direction !== input.direction) {
+    const parameterPayload = parameterEvent?.payload as
+      | Record<string, unknown>
+      | undefined;
+    if (parameterEvent && parameterPayload?.direction !== input.direction) {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
     const previewEvent = result.events.at(-1);
+    const previewPayload = previewEvent?.payload as
+      | Record<string, unknown>
+      | undefined;
     if (
       previewEvent?.type !== "PREVIEW_READY" ||
-      previewEvent.payload.watermarked !== true ||
-      previewEvent.payload.downloadable !== false
+      previewPayload?.watermarked !== true ||
+      previewPayload.downloadable !== false
     ) {
       throw new Error("INVALID_PROVIDER_RESULT");
     }

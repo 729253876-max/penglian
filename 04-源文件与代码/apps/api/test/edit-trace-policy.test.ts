@@ -11,33 +11,28 @@ const baseEvent = {
   phase: "PLAN",
   occurredAt: "2026-07-24T00:00:00.000Z",
   visibility: "PREVIEW" as const,
-  copyKey: "portrait.plan.ready"
+  copyKey: "portrait.plan.natural"
 };
 
 describe("edit trace policy", () => {
-  it("accepts a permitted event and preserves its structured public payload", () => {
+  it("accepts a permitted event and preserves only its event-specific public payload", () => {
     const event = {
       ...baseEvent,
-      payload: {
-        direction: "NATURAL",
-        brightnessDelta: 12,
-        warmthDelta: -4,
-        keepSkinTexture: true
-      }
+      payload: { direction: "NATURAL" as const }
     };
 
     expect(sanitizeEditTraceEvent(event)).toEqual(event);
   });
 
-  it("accepts stage and parameter direction events with public structured output", () => {
+  it("accepts stage and parameter events with their exact public DTOs", () => {
     const stageEvent = {
       ...baseEvent,
       eventId: "evt-2",
       sequence: 2,
       type: "STAGE_COMPLETED" as const,
       phase: "RETOUCH",
-      copyKey: "portrait.stage.skin.completed",
-      payload: { stage: "SKIN_RETOUCH", completed: true }
+      copyKey: "portrait.stage.retouch.completed",
+      payload: { stage: "LOCAL_LIGHT_AND_SKIN" as const }
     };
     const parameterEvent = {
       ...baseEvent,
@@ -45,8 +40,8 @@ describe("edit trace policy", () => {
       sequence: 3,
       type: "PARAM_DIRECTION_APPLIED" as const,
       phase: "RETOUCH",
-      copyKey: "portrait.parameter.brightness.applied",
-      payload: { parameter: "brightness", direction: "increase", amount: 12 }
+      copyKey: "portrait.parameter.direction",
+      payload: { direction: "NATURAL" as const, level: "MODERATE" as const }
     };
 
     expect(sanitizeEditTraceEvent(stageEvent)).toEqual(stageEvent);
@@ -57,7 +52,7 @@ describe("edit trace policy", () => {
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { chainOfThought: "private deliberation" }
-    })).toThrow("Forbidden EditTrace payload key: chainOfThought");
+    })).toThrow(ZodError);
 
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
@@ -67,33 +62,36 @@ describe("edit trace policy", () => {
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { providerApiKey: "secret" }
-    })).toThrow("Forbidden EditTrace payload key: providerApiKey");
+    })).toThrow(ZodError);
 
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { providerSecret: "secret" }
-    })).toThrow("Forbidden EditTrace payload key: providerSecret");
+    })).toThrow(ZodError);
 
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { providerRawResponse: "unfiltered provider output" }
-    })).toThrow("Forbidden EditTrace payload key: providerRawResponse");
+    })).toThrow(ZodError);
 
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { internalRoute: "provider/internal" }
-    })).toThrow("Forbidden EditTrace payload key: internalRoute");
+    })).toThrow(ZodError);
   });
 
   it("does not reject normal public copy merely for discussing reasoning", () => {
     const event = {
       ...baseEvent,
       payload: {
+        direction: "NATURAL",
         publicSummary: "已按你的修图方向完成参数调整，不展示内部 reasoning。"
       }
     };
 
-    expect(sanitizeEditTraceEvent(event)).toEqual(event);
+    expect(() => sanitizeEditTraceEvent(
+      event as unknown as EditTraceEvent
+    )).toThrow(ZodError);
   });
 
   it("rejects normalized provider and internal sensitive payload keys", () => {
@@ -107,16 +105,15 @@ describe("edit trace policy", () => {
     ]) {
       expect(() => sanitizeEditTraceEvent({
         ...baseEvent,
-        payload: { [key]: "must-not-ship" }
-      })).toThrow(`Forbidden EditTrace payload key: ${key}`);
+        payload: { direction: "NATURAL", [key]: "must-not-ship" }
+      } as unknown as EditTraceEvent)).toThrow(ZodError);
     }
   });
 
-  it("uses the contract default when a public trace omits payload", () => {
-    expect(sanitizeEditTraceEvent(baseEvent as unknown as EditTraceEvent)).toEqual({
-      ...baseEvent,
-      payload: {}
-    });
+  it("rejects a missing payload instead of inventing an event-specific DTO", () => {
+    expect(() => sanitizeEditTraceEvent(
+      baseEvent as unknown as EditTraceEvent
+    )).toThrow(ZodError);
   });
 
   it("rejects null payloads through the event contract", () => {
@@ -130,6 +127,23 @@ describe("edit trace policy", () => {
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: { stage: { name: "SKIN_RETOUCH" } }
+    } as unknown as EditTraceEvent)).toThrow(ZodError);
+  });
+
+  it.each([
+    "accessToken",
+    "authorization",
+    "signedImageUrl",
+    "providerModel",
+    "moderationResult",
+    "futureUnknownField"
+  ])("rejects unknown PLAN_READY payload field %s by default", (key) => {
+    expect(() => sanitizeEditTraceEvent({
+      ...baseEvent,
+      payload: {
+        direction: "NATURAL",
+        [key]: "must-not-ship"
+      }
     } as unknown as EditTraceEvent)).toThrow(ZodError);
   });
 });

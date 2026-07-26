@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:api": "npm run dev -w @photo-ai/api"
+    "dev:api": "npm run dev -w @photo-ai/api",
+    "verify:miniprogram-runtime": "npm run verify:runtime -w @photo-ai/miniprogram"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

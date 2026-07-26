@@ -30,8 +30,8 @@ const contractTypeWitness: [
     phase: "PLAN",
     occurredAt: "2026-07-26T00:00:00.000Z",
     visibility: "PREVIEW",
-    copyKey: "trace.plan.ready",
-    payload: {}
+    copyKey: "portrait.plan.natural",
+    payload: { direction: "NATURAL" }
   },
   {
     tool: "PORTRAIT_RETOUCH",
@@ -148,11 +148,12 @@ describe("task contracts", () => {
       phase: "PLAN",
       occurredAt: "2026-07-26T00:00:00.000Z",
       visibility: "PREVIEW",
-      copyKey: "trace.plan.ready"
+      copyKey: "portrait.plan.natural",
+      payload: { direction: "NATURAL" }
     }).success).toBe(false);
   });
 
-  it("rejects sensitive trace payload fields", () => {
+  it("enforces a strict payload allowlist for each event kind", () => {
     const baseEvent = {
       eventId: "evt-2",
       taskId: "task-1",
@@ -161,7 +162,53 @@ describe("task contracts", () => {
       phase: "PLAN",
       occurredAt: "2026-07-26T00:00:00.000Z",
       visibility: "PREVIEW",
-      copyKey: "trace.plan.ready"
+      copyKey: "portrait.plan.natural"
+    };
+
+    expect([
+      { direction: "NATURAL", accessToken: "must-not-ship" },
+      { direction: "NATURAL", authorization: "must-not-ship" },
+      { direction: "NATURAL", signedImageUrl: "https://secret.invalid/signed" },
+      { direction: "NATURAL", providerModel: "internal-model-route" },
+      { direction: "NATURAL", moderationResult: "sensitive-review-output" },
+      { direction: "NATURAL", futureUnknownField: "must-default-to-reject" },
+      { finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT" }
+    ].map((payload) => EditTraceEventSchema.safeParse({
+      ...baseEvent,
+      payload
+    }).success)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]);
+
+    expect(EditTraceEventSchema.safeParse({
+      ...baseEvent,
+      payload: { direction: "NATURAL" }
+    }).success).toBe(true);
+    expect(EditTraceEventSchema.safeParse({
+      ...baseEvent,
+      type: "DIAGNOSIS_FINDING",
+      phase: "DIAGNOSIS",
+      copyKey: "portrait.diagnosis.light",
+      payload: { finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT" }
+    }).success).toBe(true);
+  });
+
+  it("rejects sensitive trace payload fields", () => {
+    const baseEvent = {
+      eventId: "evt-sensitive-payload",
+      taskId: "task-1",
+      sequence: 1,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: "PREVIEW",
+      copyKey: "portrait.plan.natural"
     };
 
     expect([
@@ -170,7 +217,7 @@ describe("task contracts", () => {
       "originalImageUrl"
     ].map((field) => EditTraceEventSchema.safeParse({
       ...baseEvent,
-      payload: { [field]: "must-not-ship" }
+      payload: { direction: "NATURAL", [field]: "must-not-ship" }
     }).success)).toEqual([false, false, false]);
   });
 
@@ -183,7 +230,7 @@ describe("task contracts", () => {
       phase: "PLAN",
       occurredAt: "2026-07-26T00:00:00.000Z",
       visibility: "PREVIEW",
-      copyKey: "trace.plan.ready"
+      copyKey: "portrait.plan.natural"
     };
 
     expect([
@@ -197,7 +244,7 @@ describe("task contracts", () => {
       "hidden_reasoning"
     ].map((key) => EditTraceEventSchema.safeParse({
       ...baseEvent,
-      payload: { [key]: "must-not-ship" }
+      payload: { direction: "NATURAL", [key]: "must-not-ship" }
     }).success)).toEqual([
       false,
       false,

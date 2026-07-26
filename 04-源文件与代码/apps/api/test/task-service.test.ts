@@ -47,7 +47,7 @@ class ThrowingImageProvider implements ImageProvider {
 class RetryingImageProvider implements ImageProvider {
   public async runPreview(): Promise<ProviderRunResult> {
     return {
-      previewUrl: "https://example.invalid/demo-preview/retried.jpg",
+      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
       events: [
         providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
         providerEvent("QUALITY_CHECK_FAILED", "QUALITY", "quality.identity.failed"),
@@ -103,7 +103,7 @@ class FirstSaveBarrierRepository extends InMemoryTaskRepository {
 
 function successfulProviderResult(): ProviderRunResult {
   return {
-    previewUrl: "https://example.invalid/demo-preview/single-flight.jpg",
+    previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
     events: [
       providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
       providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
@@ -135,8 +135,8 @@ function providerResultWithMalformedFinalEvent(
 
 function providerEvent(
   type: EditTraceEvent["type"],
-  phase: string,
-  copyKey: string,
+  phase: EditTraceEvent["phase"],
+  copyKey: EditTraceEvent["copyKey"],
   payload: EditTraceEvent["payload"] = {}
 ): Omit<EditTraceEvent, "eventId" | "taskId" | "sequence"> {
   return {
@@ -239,6 +239,83 @@ describe("TaskService", () => {
     expect(appendEvent).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "an unknown asset",
+      {
+        ...portraitInput,
+        inputAssetId: "completely-unknown-asset"
+      }
+    ],
+    [
+      "an unsupported direction",
+      {
+        ...portraitInput,
+        direction: "WARM" as const
+      }
+    ],
+    [
+      "parameters that are not registered for the demo",
+      {
+        ...portraitInput,
+        parameters: {
+          ...portraitInput.parameters,
+          naturalness: 12
+        }
+      }
+    ]
+  ])("rejects %s before saving a task or writing a diagnosis", async (_name, input) => {
+    const repository = new InMemoryTaskRepository();
+    const save = vi.spyOn(repository, "save");
+    const appendEvent = vi.spyOn(repository, "appendEvent");
+    const service = new TaskService(repository, new MockImageProvider());
+
+    await expect(service.create(input)).rejects.toThrow(
+      "STAGE_A_UNSUPPORTED_DEMO_INPUT"
+    );
+
+    expect(save).not.toHaveBeenCalled();
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+
+  it("ties diagnosis, plan, preview, and event time to the registered demo profile and injected clock", async () => {
+    const occurredAt = "2032-03-04T05:06:07.000Z";
+    const clock = {
+      now: () => new Date(occurredAt)
+    };
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new MockImageProvider(clock),
+      clock
+    );
+
+    const created = await service.create(portraitInput);
+    const finished = await service.confirmAndRunPreview(created.taskId);
+    const events = await service.getEvents(created.taskId, 0);
+
+    expect(events.slice(0, 3)).toMatchObject([
+      {
+        type: "DIAGNOSIS_STARTED",
+        copyKey: "portrait.diagnosis.started",
+        payload: {}
+      },
+      {
+        type: "DIAGNOSIS_FINDING",
+        copyKey: "portrait.diagnosis.light",
+        payload: { finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT" }
+      },
+      {
+        type: "PLAN_READY",
+        copyKey: "portrait.plan.natural",
+        payload: { direction: "NATURAL" }
+      }
+    ]);
+    expect(events.every((event) => event.occurredAt === occurredAt)).toBe(true);
+    expect(finished.previewUrl).toBe(
+      "https://example.invalid/demo-preview/portrait-natural.jpg"
+    );
+  });
+
   it("records a truthful failure when the provider cannot produce a preview", async () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
@@ -309,6 +386,10 @@ describe("TaskService", () => {
   it("fails before persistence when a provider inserts an invalid success event", async () => {
     const invalidResults: ProviderRunResult[] = [
       {
+        ...successfulProviderResult(),
+        previewUrl: "https://example.invalid/demo-preview/unregistered.jpg"
+      },
+      {
         previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
         events: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
@@ -333,7 +414,11 @@ describe("TaskService", () => {
         previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
         events: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
-          providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.stage.unapproved.started")
+          providerEvent(
+            "PARAM_DIRECTION_APPLIED",
+            "RETOUCH",
+            "portrait.stage.unapproved.started" as EditTraceEvent["copyKey"]
+          )
         ]
       },
       {
@@ -382,7 +467,8 @@ describe("TaskService", () => {
     [
       "a hidden reasoning payload field",
       providerResultWithMalformedFinalEvent((event) => {
-        event.payload.hiddenReasoning = "private provider reasoning";
+        (event.payload as unknown as Record<string, unknown>).hiddenReasoning =
+          "private provider reasoning";
       })
     ],
     [
@@ -412,6 +498,49 @@ describe("TaskService", () => {
       "TASK_FAILED"
     ]);
     expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
+  });
+
+  it.each([
+    "accessToken",
+    "authorization",
+    "signedImageUrl",
+    "providerModel",
+    "moderationResult",
+    "providerRawPayload",
+    "futureUnknownField"
+  ])("rejects a provider batch containing %s before persisting any provider event", async (key) => {
+    const result = successfulProviderResult();
+    const middleEvent = result.events[2];
+    if (!middleEvent) {
+      throw new Error("provider result must include a middle event");
+    }
+    (middleEvent.payload as unknown as Record<string, unknown>)[key] =
+      key === "signedImageUrl"
+        ? "https://secret.invalid/signed-preview"
+        : "must-not-ship";
+
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result)
+    );
+    const created = await service.create(portraitInput);
+
+    const finished = await service.confirmAndRunPreview(created.taskId);
+    const events = await service.getEvents(created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "DIAGNOSIS_STARTED",
+      "DIAGNOSIS_FINDING",
+      "PLAN_READY",
+      "TASK_FAILED"
+    ]);
+    expect(events.some((event) =>
+      Object.hasOwn(event.payload, key)
+    )).toBe(false);
   });
 
   it("isolates the input captured before the first asynchronous save", async () => {
@@ -456,7 +585,7 @@ describe("TaskService", () => {
       throw new Error("stored task must be found");
     }
     found.input.parameters.naturalness = 5;
-    events[0]!.payload.direction = "WARM";
+    (events[0]!.payload as unknown as Record<string, unknown>).direction = "WARM";
 
     await expect(repository.appendEvent({ ...firstEvent, eventId: "event-duplicate" }))
       .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
