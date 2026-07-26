@@ -1,0 +1,16 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/plan/index",
+    "pages/live/index",
+    "pages/preview/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "AI 忠实精修",
+    "navigationBarBackgroundColor": "#F7F5F0",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F7F5F0"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

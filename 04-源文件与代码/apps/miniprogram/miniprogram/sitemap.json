@@ -1,0 +1,4 @@
+{
+  "desc": "Project-002 development sitemap",
+  "rules": [{ "action": "disallow", "page": "*" }]
+}

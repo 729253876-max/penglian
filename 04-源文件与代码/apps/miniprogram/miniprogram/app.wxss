@@ -1,0 +1,8 @@
+page { background: #f7f5f0; color: #171719; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.page { min-height: 100vh; box-sizing: border-box; padding: 32rpx; }
+.card { background: #fff; border-radius: 24rpx; padding: 28rpx; box-shadow: 0 12rpx 36rpx rgba(23, 23, 25, .07); }
+.button-primary { height: 96rpx; border-radius: 28rpx; background: #171719; color: #fff; font-size: 30rpx; font-weight: 700; line-height: 96rpx; }
+.button-primary[disabled] { opacity: .48; }
+.muted { color: #77727f; font-size: 24rpx; line-height: 1.6; }
+.accent { color: #6c58c9; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
