@@ -51,6 +51,7 @@ export async function registerTaskRoutes(
     Params: { taskId: string };
   }>("/v1/tasks/:taskId/preview", async (request, reply) => {
     try {
+      await service.get(request.params.taskId);
       return reply.code(202).send(
         await service.confirmAndRunPreview(request.params.taskId)
       );
@@ -74,8 +75,11 @@ export async function registerTaskRoutes(
     Querystring: { afterSequence?: string };
   }>("/v1/tasks/:taskId/events", async (request, reply) => {
     const raw = request.query.afterSequence ?? "0";
+    if (typeof raw !== "string" || !/^(0|[1-9]\d*)$/.test(raw)) {
+      return reply.code(400).send({ code: "INVALID_SEQUENCE" });
+    }
     const afterSequence = Number(raw);
-    if (!Number.isInteger(afterSequence) || afterSequence < 0) {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
       return reply.code(400).send({ code: "INVALID_SEQUENCE" });
     }
 

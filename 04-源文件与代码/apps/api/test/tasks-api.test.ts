@@ -147,7 +147,51 @@ describe("tasks API", () => {
     }
   });
 
-  it.each(["1.5", "-1"])("rejects invalid afterSequence %s", async (afterSequence) => {
+  it("returns not found when confirming a missing task", async () => {
+    const app = buildApp();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks/missing-task/preview"
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ code: "TASK_NOT_FOUND" });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["whitespace", " "],
+    ["scientific notation", "1e3"],
+    ["hexadecimal", "0x10"],
+    ["a decimal fraction", "1.5"],
+    ["Infinity", "Infinity"],
+    ["a negative integer", "-1"],
+    ["an unsafe integer", "9007199254740992"],
+    ["a leading-zero integer", "01"]
+  ])("rejects afterSequence with %s", async (_name, afterSequence) => {
+    const app = buildApp();
+    try {
+      const task = await createPortraitTask(app);
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/tasks/${task.taskId}/events?afterSequence=${encodeURIComponent(afterSequence)}`
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ code: "INVALID_SEQUENCE" });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    ["zero", "0", 3],
+    ["an ordinary decimal integer", "2", 3]
+  ])("accepts afterSequence %s", async (_name, afterSequence, nextSequence) => {
     const app = buildApp();
     try {
       const task = await createPortraitTask(app);
@@ -156,8 +200,8 @@ describe("tasks API", () => {
         url: `/v1/tasks/${task.taskId}/events?afterSequence=${afterSequence}`
       });
 
-      expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({ code: "INVALID_SEQUENCE" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().nextSequence).toBe(nextSequence);
     } finally {
       await app.close();
     }
