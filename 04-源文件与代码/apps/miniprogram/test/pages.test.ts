@@ -26,12 +26,14 @@ function event(eventId: string, sequence: number, type: EditTraceEvent["type"] =
 }
 
 function pageInstance(config: PageConfig) {
-  return Object.assign({
+  const page = Object.assign({
     data: structuredClone(config.data ?? {}),
     setData(patch: Record<string, unknown>) {
       Object.assign(this.data, patch);
     }
   }, config);
+  page.data = structuredClone(config.data ?? {});
+  return page;
 }
 
 async function loadPage(path: string): Promise<PageConfig> {
@@ -76,6 +78,40 @@ describe("plan page", () => {
     expect(page.data.submitting).toBe(false);
     expect(page.data.error).toContain("本地 API");
   });
+  it("does not navigate or change a disposed submission when its request resolves", async () => {
+    const deferred = Promise.withResolvers<{ taskId: string }>();
+    api.createTask.mockReturnValueOnce(deferred.promise).mockResolvedValueOnce({ taskId: "task-b" });
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    const first = pageInstance(config);
+    const second = pageInstance(config);
+
+    config.onLoad.call(first);
+    const pending = config.startPreview.call(first);
+    config.onUnload.call(first);
+    config.onLoad.call(second);
+    await config.startPreview.call(second);
+    deferred.resolve({ taskId: "task-a" });
+    await pending;
+
+    expect(wx.navigateTo).toHaveBeenCalledTimes(1);
+    expect(wx.navigateTo).toHaveBeenLastCalledWith({ url: "/pages/live/index?taskId=task-b" });
+    expect(second.data.error).toBe("");
+  });
+
+  it("does not show a failure from a disposed submission", async () => {
+    const deferred = Promise.withResolvers<{ taskId: string }>();
+    api.createTask.mockReturnValueOnce(deferred.promise);
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page);
+    const pending = config.startPreview.call(page);
+    config.onUnload.call(page);
+    deferred.reject(new Error("offline"));
+    await pending;
+
+    expect(page.data.error).toBe("");
+  });
 });
 
 describe("live page", () => {
@@ -115,6 +151,48 @@ describe("live page", () => {
     config.onUnload.call(page);
     await vi.runAllTimersAsync();
     expect(page.data.visibleEvents).toEqual([]);
+  });
+  it("keeps each page runtime isolated when an unloaded page resolves after a new load", async () => {
+    vi.useFakeTimers();
+    const firstPreview = Promise.withResolvers<{ taskId: string }>();
+    api.runPreview.mockReturnValueOnce(firstPreview.promise).mockResolvedValueOnce({ taskId: "task-b" });
+    api.getEvents.mockResolvedValueOnce({ items: [event("b-ready", 1, "PREVIEW_READY")], nextSequence: 1 });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const first = pageInstance(config);
+    const second = pageInstance(config);
+
+    config.onLoad.call(first, { taskId: "task-a" });
+    config.onUnload.call(first);
+    config.onLoad.call(second, { taskId: "task-b" });
+    await Promise.resolve();
+    await Promise.resolve();
+    firstPreview.resolve({ taskId: "task-a" });
+    await vi.runAllTimersAsync();
+
+    expect(api.getEvents).toHaveBeenCalledTimes(1);
+    expect(first.data.visibleEvents).toEqual([]);
+    expect(second.data.visibleEvents).toHaveLength(1);
+    expect(second.data.ready).toBe(true);
+  });
+
+  it("does not overlap a retry with its scheduled poll", async () => {
+    vi.useFakeTimers();
+    const retryRequest = Promise.withResolvers<{ items: EditTraceEvent[]; nextSequence: number }>();
+    api.runPreview.mockResolvedValueOnce({ taskId: "task-1" });
+    api.getEvents.mockResolvedValueOnce({ items: [], nextSequence: 0 }).mockReturnValueOnce(retryRequest.promise);
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    config.retry.call(page);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(api.getEvents).toHaveBeenCalledTimes(2);
+    retryRequest.resolve({ items: [event("ready", 1, "PREVIEW_READY")], nextSequence: 1 });
+    await vi.runAllTimersAsync();
+    expect(page.data.ready).toBe(true);
   });
 });
 
