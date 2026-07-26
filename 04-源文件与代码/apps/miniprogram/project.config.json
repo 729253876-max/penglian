@@ -1,0 +1,13 @@
+{
+  "description": "Project-002 修图 AI 小程序",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "miniprogram/",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": false,
+    "urlCheck": false
+  },
+  "appid": "touristappid",
+  "projectname": "project-002-photo-ai"
+}
