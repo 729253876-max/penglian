@@ -29,20 +29,28 @@ function parseTaskSnapshot(value: unknown): TaskSnapshot {
   return parsed.data;
 }
 
-function parseEventPage(value: unknown): EventPage {
-  if (!isRecord(value) || !Array.isArray(value.items) || !isNonNegativeSafeInteger(value.nextSequence)) {
-    throw new Error("API_RESPONSE_INVALID");
-  }
-
-  const items = value.items.map((event) => {
-    const parsed = EditTraceEventSchema.safeParse(event);
-    if (!parsed.success) {
+function parseEventPage(afterSequence: number): (value: unknown) => EventPage {
+  return (value) => {
+    if (!isRecord(value) || !Array.isArray(value.items) || !isNonNegativeSafeInteger(value.nextSequence)) {
       throw new Error("API_RESPONSE_INVALID");
     }
-    return parsed.data;
-  });
 
-  return { items, nextSequence: value.nextSequence };
+    let previousSequence = afterSequence;
+    const items = value.items.map((event) => {
+      const parsed = EditTraceEventSchema.safeParse(event);
+      if (!parsed.success || parsed.data.sequence <= previousSequence) {
+        throw new Error("API_RESPONSE_INVALID");
+      }
+      previousSequence = parsed.data.sequence;
+      return parsed.data;
+    });
+
+    if (value.nextSequence !== previousSequence) {
+      throw new Error("API_RESPONSE_INVALID");
+    }
+
+    return { items, nextSequence: value.nextSequence };
+  };
 }
 
 function request<T>(
@@ -100,5 +108,5 @@ export const getEvents = (taskId: string, afterSequence: number) => {
   return request<EventPage>({
     method: "GET",
     url: `/v1/tasks/${taskPath(taskId)}/events?afterSequence=${afterSequence}`
-  }, parseEventPage);
+  }, parseEventPage(afterSequence));
 };
