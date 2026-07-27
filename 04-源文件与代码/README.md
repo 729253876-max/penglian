@@ -31,6 +31,7 @@ npm.cmd run dev:api
 npm.cmd run typecheck
 npm.cmd test
 npm.cmd run verify:miniprogram-runtime
+npm.cmd test -- apps/api/test/http-smoke.test.ts --reporter=verbose
 ```
 
 `npm.cmd test` 是严格测试命令；测试文件缺失会失败，不能用作伪通过检查。
@@ -38,6 +39,10 @@ npm.cmd run verify:miniprogram-runtime
 `verify:miniprogram-runtime` 会把小程序 service 编译产物复制到一个不含
 `node_modules` 的系统临时目录，加载客户端并真实调用一次 `getTask`。这项
 验证用于防止运行时代码意外依赖 Zod 或 workspace 包。
+
+最后一条命令会由生产 `buildApp()` 真实监听 `127.0.0.1:3100`，并通过原生
+HTTP 请求覆盖阶段 A 的 `201/202/200/200/422` 主链路；运行前需确保 3100
+没有其他 `LISTENING` 进程。
 
 ## 打开小程序
 
