@@ -5,4 +5,3 @@ page { background: #f7f5f0; color: #171719; font-family: -apple-system, BlinkMac
 .button-primary[disabled] { opacity: .48; }
 .muted { color: #77727f; font-size: 24rpx; line-height: 1.6; }
 .accent { color: #6c58c9; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

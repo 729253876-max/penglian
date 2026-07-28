@@ -8,6 +8,9 @@
     "minified": false,
     "urlCheck": false
   },
+  "scripts": {
+    "beforeCompile": "npm run build:wechat"
+  },
   "appid": "touristappid",
   "projectname": "project-002-photo-ai"
 }

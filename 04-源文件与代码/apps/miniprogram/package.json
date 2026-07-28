@@ -2,6 +2,7 @@
   "name": "@photo-ai/miniprogram",
   "private": true,
   "scripts": {
+    "build:wechat": "tsc -p tsconfig.wechat.json",
     "build:runtime-verify": "tsc -p tsconfig.runtime.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

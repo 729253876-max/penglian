@@ -91,7 +91,8 @@ export const createTask = (input: CreateTaskInput) =>
 export const runPreview = (taskId: string) =>
   request<TaskSnapshot>({
     method: "POST",
-    url: `/v1/tasks/${taskPath(taskId)}/preview`
+    url: `/v1/tasks/${taskPath(taskId)}/preview`,
+    data: {}
   }, parseTaskSnapshot);
 
 export const getTask = (taskId: string) =>

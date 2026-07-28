@@ -1,0 +1,2 @@
+"use strict";
+Page({ data: { showAfter: true }, showBefore() { this.setData({ showAfter: false }); }, showAfter() { this.setData({ showAfter: true }); }, adjustAgain() { wx.redirectTo({ url: "/pages/plan/index" }); } });

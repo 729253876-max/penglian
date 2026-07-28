@@ -6,16 +6,25 @@
 
 - Node.js：`v24.18.0`
 - npm：`11.16.0`
-- 微信开发者工具：用于编译和打开小程序工程。已取证的是可执行文件 `ProductVersion 1.03.0`；“关于”窗口版本尚未取证。
+- 微信开发者工具：用于编译和打开小程序工程。2026-07-28 从真实项目窗口的
+  “微信开发者工具 → 当前版本”弹窗直接确认
+  `2.02.2607171 RC win32-x64`；证据截图为
+  `../06-复盘与踩坑/阶段A-微信开发者工具-当前版本-20260728.png`。
+  完整项目窗口及“关于 / 当前版本”入口的组合证据为
+  `../06-复盘与踩坑/阶段A-微信开发者工具-版本入口-20260728.jpg`。
+  本 RC 的“关于”菜单项会打开官网概览页，版本弹窗入口实际为“当前版本”。
 
 ## 安装
 
-在项目规范目录中执行：
+当前环境验收分支尚未集成，复验必须在其独立 worktree 中执行：
 
 ```powershell
-cd "D:\Documents\workspace\projects\Project-002-修图AI小程序\04-源文件与代码"
+cd "D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-phase-a-env-acceptance\04-源文件与代码"
 npm.cmd install
 ```
+
+分支集成到 `master` 后，才切回规范主路径
+`D:\Documents\workspace\projects\Project-002-修图AI小程序\04-源文件与代码`。
 
 ## 启动本地 API
 
@@ -31,6 +40,7 @@ npm.cmd run dev:api
 npm.cmd run typecheck
 npm.cmd test
 npm.cmd run verify:miniprogram-runtime
+npm.cmd run build:wechat -w @photo-ai/miniprogram
 npm.cmd test -- apps/api/test/http-smoke.test.ts --reporter=verbose
 ```
 
@@ -48,9 +58,20 @@ HTTP 请求覆盖阶段 A 的 `201/202/200/200/422` 主链路；运行前需确�
 
 在微信开发者工具中导入以下目录：
 
-`D:\Documents\workspace\projects\Project-002-修图AI小程序\04-源文件与代码\apps\miniprogram`
+`D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-phase-a-env-acceptance\04-源文件与代码\apps\miniprogram\miniprogram`
 
-工程使用 `touristappid` 进行编译验证。导入后先启动本地 API，再从首页进入方案确认页，创建示例任务并查看 AI 精修实况和水印预览。
+这是微信实际运行时工程根。其 `project.config.json` 使用
+`miniprogramRoot: "./"`，并在 `beforeCompile` 中从父目录执行
+`npm --prefix .. run build:wechat`。工程使用 `touristappid` 进行编译验证。
+验收分支集成后，微信工程再切换到规范主路径下的同名
+`apps\miniprogram\miniprogram` 目录。
+导入后先启动本地 API，再从首页进入方案确认页，创建示例任务并查看 AI 精修
+实况和水印预览。
+
+TypeScript 是唯一手写源；`build:wechat` 会生成微信可直接加载的 8 个 `.js`
+文件。修改 TypeScript 后必须先重新生成，再用微信开发者工具编译并以
+`page_data` 验证实际页面。`project-config.test.ts` 还会把 TypeScript 输出到
+临时目录并逐一与这 8 个仓库内 `.js` 比较，防止提交过期生成物。
 
 阶段 A 的小程序运行时代码已经内置最小响应校验器；`@photo-ai/contracts`
 仅作为开发期类型依赖。因此无需生成 `miniprogram_npm`，也无需在微信开发者
@@ -66,9 +87,12 @@ V1 的产品契约包含四项工具：人像精修、画质增强、路人/杂�
 - 老照片修复的上色请求与显式确认参数保留在契约中；阶段 A 不执行该工具。
 - 本阶段使用示例资产与本地模拟服务，不接入真实用户图片、供应商、支付、积分、审美档案或增长系统。
 
-阶段 A 的自动化测试、仓库侧无外部模块运行时验证与较早基线的微信编译已有
-记录；本轮修复后的模拟器运行时交互仍待在可用的 9420 WebSocket 环境中完成
-验证。详见 `../06-复盘与踩坑/V1阶段A验证记录-v01-20260726.md`。
+阶段 A 的全量测试、仓库侧无外部模块运行时验证、当前验收分支微信编译、
+9420 模拟器主链路、失败提示、减少动态效果持久化和 SVG 模拟器渲染均已有
+记录。API 仓储仍为内存态：API 重启后旧任务不可恢复，这一阶段边界不能写成
+“重启后恢复成功”。微信开发者工具版本 GUI 证据已经取得；验收分支完成最终
+复核、提交和集成前，仍不得宣称阶段 A 已验收或可发布。详见
+`../06-复盘与踩坑/V1阶段A验证记录-v01-20260726.md`。
 
 功能分支最终整合完成前，请同时运行 `git status --short --branch` 与
 `git log -1 --oneline`：前者确认工作树/分支状态，后者核对当前提交；

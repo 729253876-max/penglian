@@ -1,0 +1,4 @@
+interface:
+  display_name: "回复前证据复核"
+  short_description: "每次回复前系统核对最新证据、Git状态、任务边界与发布结论"
+  default_prompt: "Use $pre-reply-verification to audit the latest evidence, Git state, completion boundary, and claims before replying."

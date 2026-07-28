@@ -4,7 +4,12 @@ import type {
   EditTraceEvent,
   TaskSnapshot
 } from "@photo-ai/contracts";
-import { createTask, getEvents, getTask } from "../miniprogram/services/api";
+import {
+  createTask,
+  getEvents,
+  getTask,
+  runPreview
+} from "../miniprogram/services/api";
 
 const taskSnapshot: TaskSnapshot = {
   taskId: "task-1",
@@ -56,6 +61,20 @@ describe("miniprogram API client", () => {
     expect(sent?.method).toBe("POST");
     expect(sent?.url).toBe("http://127.0.0.1:3100/v1/tasks");
     expect(sent?.data).toEqual(createInput);
+  });
+
+  it("sends a JSON body when starting preview generation", async () => {
+    let sent: WechatMiniprogram.RequestOption | undefined;
+    vi.stubGlobal("wx", {
+      request(options: WechatMiniprogram.RequestOption) {
+        sent = options;
+        options.success?.({ statusCode: 202, data: taskSnapshot });
+      }
+    });
+
+    await expect(runPreview("task-1")).resolves.toEqual(taskSnapshot);
+    expect(sent?.method).toBe("POST");
+    expect(sent?.data).toEqual({});
   });
 
   it("rejects non-success responses without exposing the response body", async () => {
