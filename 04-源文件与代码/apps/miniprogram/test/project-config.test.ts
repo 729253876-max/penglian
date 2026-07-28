@@ -34,6 +34,9 @@ const expectedRuntimeFiles = [
   "services/runtime-contracts.js"
 ] as const;
 
+const normalizeLineEndings = (content: string) =>
+  content.replace(/\r\n?/g, "\n");
+
 describe("WeChat project configuration", () => {
   it("exposes the runtime source directory as a directly openable WeChat project", () => {
     const runtimeProjectConfigUrl = new URL(
@@ -130,8 +133,10 @@ describe("WeChat project configuration", () => {
 
         expect(existsSync(emittedFile)).toBe(true);
         expect(existsSync(checkedInFile)).toBe(true);
-        expect(readFileSync(checkedInFile, "utf8")).toBe(
-          readFileSync(emittedFile, "utf8")
+        expect(
+          normalizeLineEndings(readFileSync(checkedInFile, "utf8"))
+        ).toBe(
+          normalizeLineEndings(readFileSync(emittedFile, "utf8"))
         );
       }
       for (const page of appConfig.pages ?? []) {
