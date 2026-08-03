@@ -10,6 +10,7 @@
   "dependencies": {
     "@photo-ai/contracts": "*",
     "fastify": "^5.0.0",
+    "mysql2": "3.23.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {
