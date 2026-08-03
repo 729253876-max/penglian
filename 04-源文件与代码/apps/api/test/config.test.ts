@@ -33,9 +33,30 @@ describe("loadConfig", () => {
     ).toThrow("INVALID_WECHAT_APP_ID");
   });
 
+  it("rejects a format-valid App ID that is not this production application", () => {
+    expect(() =>
+      loadConfig({ ...validProductionEnv, WECHAT_APP_ID: "wx0000000000000000" })
+    ).toThrow("INVALID_WECHAT_APP_ID");
+  });
+
   it("rejects identity keys that are not 32-byte hexadecimal values", () => {
     expect(() =>
       loadConfig({ ...validProductionEnv, IDENTITY_LOOKUP_KEY: "11".repeat(31) })
     ).toThrow("INVALID_IDENTITY_LOOKUP_KEY");
+  });
+
+  it("rejects an encryption key that is not a 32-byte hexadecimal value", () => {
+    expect(() =>
+      loadConfig({ ...validProductionEnv, IDENTITY_ENCRYPTION_KEY: "22".repeat(31) })
+    ).toThrow("INVALID_IDENTITY_ENCRYPTION_KEY");
+  });
+
+  it("rejects identical lookup and encryption keys", () => {
+    expect(() =>
+      loadConfig({
+        ...validProductionEnv,
+        IDENTITY_ENCRYPTION_KEY: validProductionEnv.IDENTITY_LOOKUP_KEY
+      })
+    ).toThrow("IDENTITY_KEYS_MUST_DIFFER");
   });
 });

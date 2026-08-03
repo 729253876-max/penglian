@@ -16,7 +16,7 @@ const nodeEnvironments = new Set<ApiConfig["nodeEnv"]>([
   "test",
   "production"
 ]);
-const wechatAppIdPattern = /^wx[a-f0-9]{16}$/i;
+const productionWechatAppId = "wx4f7678cc595d276b";
 const keyPattern = /^[a-f0-9]{64}$/i;
 
 function invalid(code: string): never {
@@ -62,8 +62,14 @@ export function loadConfig(env: ConfigEnvironment): ApiConfig {
   }
 
   const wechatAppId = required(env, "WECHAT_APP_ID");
-  if (!wechatAppIdPattern.test(wechatAppId)) {
+  if (wechatAppId !== productionWechatAppId) {
     invalid("INVALID_WECHAT_APP_ID");
+  }
+
+  const identityLookupKey = loadIdentityKey(env, "IDENTITY_LOOKUP_KEY");
+  const identityEncryptionKey = loadIdentityKey(env, "IDENTITY_ENCRYPTION_KEY");
+  if (identityLookupKey.equals(identityEncryptionKey)) {
+    invalid("IDENTITY_KEYS_MUST_DIFFER");
   }
 
   return {
@@ -73,7 +79,7 @@ export function loadConfig(env: ConfigEnvironment): ApiConfig {
     mysqlUrl,
     wechatAppId,
     wechatAppSecret: required(env, "WECHAT_APP_SECRET"),
-    identityLookupKey: loadIdentityKey(env, "IDENTITY_LOOKUP_KEY"),
-    identityEncryptionKey: loadIdentityKey(env, "IDENTITY_ENCRYPTION_KEY")
+    identityLookupKey,
+    identityEncryptionKey
   };
 }
