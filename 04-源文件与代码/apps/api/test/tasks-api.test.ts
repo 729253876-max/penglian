@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EditTraceEvent, TaskSnapshot } from "@photo-ai/contracts";
-import { buildApp } from "../src/app.js";
+import { buildApp, type BuildAppOptions } from "../src/app.js";
 import type { TaskApiService } from "../src/routes/tasks.js";
 
 const portraitInput = {
@@ -9,6 +9,19 @@ const portraitInput = {
   direction: "NATURAL",
   parameters: { brightness: 0, warmth: 0, naturalness: 80 }
 } as const;
+
+function buildTaskApp(options: BuildAppOptions = {}) {
+  const app = buildApp({
+    ...options,
+    sessionAuthenticator: {
+      authenticate: async () => ({ userId: "task-api-user" })
+    }
+  });
+  app.addHook("onRequest", async (request) => {
+    request.headers.authorization ??= "Bearer fictional-task-api-token";
+  });
+  return app;
+}
 
 async function createPortraitTask(app: ReturnType<typeof buildApp>) {
   const response = await app.inject({
@@ -42,7 +55,7 @@ class ThrowingTaskService implements TaskApiService {
 
 describe("tasks API", () => {
   it("creates a portrait preview task", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "POST",
@@ -64,7 +77,7 @@ describe("tasks API", () => {
   });
 
   it("confirms, completes, and reads a portrait preview", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const task = await createPortraitTask(app);
 
@@ -96,7 +109,7 @@ describe("tasks API", () => {
   });
 
   it("rejects a valid old-photo contract at the stage-A API boundary", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "POST",
@@ -142,7 +155,7 @@ describe("tasks API", () => {
       }
     ]
   ])("rejects %s at the stage-A API boundary", async (_name, payload) => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "POST",
@@ -160,7 +173,7 @@ describe("tasks API", () => {
   });
 
   it("returns a validation error for an invalid create body", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "POST",
@@ -176,7 +189,7 @@ describe("tasks API", () => {
   });
 
   it("returns not found for a missing task", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "GET",
@@ -191,7 +204,7 @@ describe("tasks API", () => {
   });
 
   it("returns not found when confirming a missing task", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const response = await app.inject({
         method: "POST",
@@ -216,7 +229,7 @@ describe("tasks API", () => {
     ["an unsafe integer", "9007199254740992"],
     ["a leading-zero integer", "01"]
   ])("rejects afterSequence with %s", async (_name, afterSequence) => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const task = await createPortraitTask(app);
       const response = await app.inject({
@@ -235,7 +248,7 @@ describe("tasks API", () => {
     ["zero", "0", 3],
     ["an ordinary decimal integer", "2", 3]
   ])("accepts afterSequence %s", async (_name, afterSequence, nextSequence) => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const task = await createPortraitTask(app);
       const response = await app.inject({
@@ -251,7 +264,7 @@ describe("tasks API", () => {
   });
 
   it("returns incremental events and preserves the cursor for an empty page", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const task = await createPortraitTask(app);
       const incremental = await app.inject({
@@ -279,7 +292,7 @@ describe("tasks API", () => {
   });
 
   it("rejects concurrent confirmations without writing a second event batch", async () => {
-    const app = buildApp();
+    const app = buildTaskApp();
     try {
       const task = await createPortraitTask(app);
       const [first, second] = await Promise.all([
@@ -304,7 +317,7 @@ describe("tasks API", () => {
   });
 
   it("does not leak an unexpected internal error", async () => {
-    const app = buildApp({
+    const app = buildTaskApp({
       service: new ThrowingTaskService(
         new Error("provider credential: never disclose this detail")
       )
@@ -325,7 +338,7 @@ describe("tasks API", () => {
   });
 
   it("maps an illegal task transition to a conflict", async () => {
-    const app = buildApp({
+    const app = buildTaskApp({
       service: new ThrowingTaskService(
         new Error("Illegal task transition: REVIEWING -> PROCESSING")
       )

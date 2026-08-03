@@ -17,15 +17,23 @@ import {
 import { transition } from "../domain/task-machine.js";
 
 export interface StoredTask extends TaskSnapshot {
+  userId: string;
   input: CreateTaskInput;
 }
 
 export interface TaskRepository {
   save(task: StoredTask): Promise<void>;
-  find(taskId: string): Promise<StoredTask | undefined>;
-  claimAwaitingConfirmation(taskId: string): Promise<StoredTask | undefined>;
+  findForUser(userId: string, taskId: string): Promise<StoredTask | undefined>;
+  claimAwaitingConfirmation(
+    userId: string,
+    taskId: string
+  ): Promise<StoredTask | undefined>;
   appendEvent(event: EditTraceEvent): Promise<void>;
-  eventsAfter(taskId: string, sequence: number): Promise<EditTraceEvent[]>;
+  eventsAfter(
+    userId: string,
+    taskId: string,
+    sequence: number
+  ): Promise<EditTraceEvent[]>;
 }
 
 export interface ProviderRunResult {
@@ -72,7 +80,10 @@ export class TaskService {
     private readonly clock: Clock = systemClock
   ) {}
 
-  public async create(input: CreateTaskInput): Promise<TaskSnapshot> {
+  public async create(
+    userId: string,
+    input: CreateTaskInput
+  ): Promise<TaskSnapshot> {
     if (input.tool !== "PORTRAIT_RETOUCH") {
       throw new Error("STAGE_A_UNSUPPORTED_TOOL");
     }
@@ -82,6 +93,7 @@ export class TaskService {
 
     const task: StoredTask = {
       taskId: randomUUID(),
+      userId,
       status: "REVIEWING",
       tool: capturedInput.tool,
       lastSequence: 0,
@@ -120,8 +132,12 @@ export class TaskService {
     return this.snapshot(task);
   }
 
-  public async confirmAndRunPreview(taskId: string): Promise<TaskSnapshot> {
-    const task = await this.repository.claimAwaitingConfirmation(taskId);
+  public async confirmAndRunPreview(
+    userId: string,
+    taskId: string
+  ): Promise<TaskSnapshot> {
+    await this.requireTask(userId, taskId);
+    const task = await this.repository.claimAwaitingConfirmation(userId, taskId);
     if (!task) {
       throw new Error("TASK_CONFIRMATION_CONFLICT");
     }
@@ -157,16 +173,17 @@ export class TaskService {
     return this.snapshot(task);
   }
 
-  public async get(taskId: string): Promise<TaskSnapshot> {
-    return this.snapshot(await this.requireTask(taskId));
+  public async get(userId: string, taskId: string): Promise<TaskSnapshot> {
+    return this.snapshot(await this.requireTask(userId, taskId));
   }
 
   public async getEvents(
+    userId: string,
     taskId: string,
     afterSequence: number
   ): Promise<EditTraceEvent[]> {
-    await this.requireTask(taskId);
-    return this.repository.eventsAfter(taskId, afterSequence);
+    await this.requireTask(userId, taskId);
+    return this.repository.eventsAfter(userId, taskId, afterSequence);
   }
 
   private async transitionForEvent(
@@ -236,8 +253,11 @@ export class TaskService {
     }
   }
 
-  private async requireTask(taskId: string): Promise<StoredTask> {
-    const task = await this.repository.find(taskId);
+  private async requireTask(
+    userId: string,
+    taskId: string
+  ): Promise<StoredTask> {
+    const task = await this.repository.findForUser(userId, taskId);
     if (!task) {
       throw new Error("TASK_NOT_FOUND");
     }

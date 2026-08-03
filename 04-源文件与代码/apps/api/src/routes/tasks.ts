@@ -1,4 +1,8 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type {
+  FastifyInstance,
+  FastifyReply,
+  preHandlerHookHandler
+} from "fastify";
 import { CreateTaskInputSchema } from "@photo-ai/contracts";
 import type { TaskService } from "../application/task-service.js";
 
@@ -6,6 +10,11 @@ export type TaskApiService = Pick<
   TaskService,
   "create" | "confirmAndRunPreview" | "get" | "getEvents"
 >;
+
+export interface TaskRouteDependencies {
+  service: TaskApiService;
+  authenticate: preHandlerHookHandler;
+}
 
 function sendDomainError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
@@ -31,9 +40,11 @@ function sendDomainError(reply: FastifyReply, error: unknown) {
 
 export async function registerTaskRoutes(
   app: FastifyInstance,
-  service: TaskApiService
+  dependencies: TaskRouteDependencies
 ): Promise<void> {
-  app.post("/v1/tasks", async (request, reply) => {
+  const { authenticate, service } = dependencies;
+
+  app.post("/v1/tasks", { preHandler: authenticate }, async (request, reply) => {
     const parsed = CreateTaskInputSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -46,7 +57,9 @@ export async function registerTaskRoutes(
     }
 
     try {
-      return reply.code(201).send(await service.create(parsed.data));
+      return reply.code(201).send(
+        await service.create(request.auth.userId, parsed.data)
+      );
     } catch (error) {
       return sendDomainError(reply, error);
     }
@@ -54,11 +67,13 @@ export async function registerTaskRoutes(
 
   app.post<{
     Params: { taskId: string };
-  }>("/v1/tasks/:taskId/preview", async (request, reply) => {
+  }>("/v1/tasks/:taskId/preview", { preHandler: authenticate }, async (request, reply) => {
     try {
-      await service.get(request.params.taskId);
       return reply.code(202).send(
-        await service.confirmAndRunPreview(request.params.taskId)
+        await service.confirmAndRunPreview(
+          request.auth.userId,
+          request.params.taskId
+        )
       );
     } catch (error) {
       return sendDomainError(reply, error);
@@ -67,9 +82,11 @@ export async function registerTaskRoutes(
 
   app.get<{
     Params: { taskId: string };
-  }>("/v1/tasks/:taskId", async (request, reply) => {
+  }>("/v1/tasks/:taskId", { preHandler: authenticate }, async (request, reply) => {
     try {
-      return reply.send(await service.get(request.params.taskId));
+      return reply.send(
+        await service.get(request.auth.userId, request.params.taskId)
+      );
     } catch (error) {
       return sendDomainError(reply, error);
     }
@@ -78,7 +95,7 @@ export async function registerTaskRoutes(
   app.get<{
     Params: { taskId: string };
     Querystring: { afterSequence?: string };
-  }>("/v1/tasks/:taskId/events", async (request, reply) => {
+  }>("/v1/tasks/:taskId/events", { preHandler: authenticate }, async (request, reply) => {
     const raw = request.query.afterSequence ?? "0";
     if (typeof raw !== "string" || !/^(0|[1-9]\d*)$/.test(raw)) {
       return reply.code(400).send({ code: "INVALID_SEQUENCE" });
@@ -89,7 +106,11 @@ export async function registerTaskRoutes(
     }
 
     try {
-      const items = await service.getEvents(request.params.taskId, afterSequence);
+      const items = await service.getEvents(
+        request.auth.userId,
+        request.params.taskId,
+        afterSequence
+      );
       return reply.send({
         items,
         nextSequence: items.at(-1)?.sequence ?? afterSequence

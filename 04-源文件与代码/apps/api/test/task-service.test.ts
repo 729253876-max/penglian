@@ -18,6 +18,7 @@ const portraitInput: CreateTaskInput = {
   direction: "NATURAL",
   parameters: { brightness: 0, warmth: 0, naturalness: 80 }
 };
+const userId = "test-user";
 
 class RecordingTaskRepository extends InMemoryTaskRepository {
   public readonly savedStatuses: StoredTask["status"][] = [];
@@ -28,9 +29,10 @@ class RecordingTaskRepository extends InMemoryTaskRepository {
   }
 
   public override async claimAwaitingConfirmation(
+    userId: string,
     taskId: string
   ): Promise<StoredTask | undefined> {
-    const task = await super.claimAwaitingConfirmation(taskId);
+    const task = await super.claimAwaitingConfirmation(userId, taskId);
     if (task) {
       this.savedStatuses.push(task.status);
     }
@@ -156,16 +158,16 @@ describe("TaskService", () => {
       new MockImageProvider()
     );
 
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
     expect(created.status).toBe("AWAITING_CONFIRMATION");
 
-    const finished = await service.confirmAndRunPreview(created.taskId);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
     expect(finished).toMatchObject({
       status: "SUCCEEDED",
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
 
-    const events = await service.getEvents(created.taskId, 0);
+    const events = await service.getEvents(userId, created.taskId, 0);
     expect(events.map((event) => event.type)).toEqual([
       "DIAGNOSIS_STARTED",
       "DIAGNOSIS_FINDING",
@@ -185,8 +187,8 @@ describe("TaskService", () => {
     const repository = new RecordingTaskRepository();
     const service = new TaskService(repository, new MockImageProvider());
 
-    const created = await service.create(portraitInput);
-    await service.confirmAndRunPreview(created.taskId);
+    const created = await service.create(userId, portraitInput);
+    await service.confirmAndRunPreview(userId, created.taskId);
 
     expect(repository.savedStatuses).toEqual([
       "REVIEWING",
@@ -233,7 +235,7 @@ describe("TaskService", () => {
     const appendEvent = vi.spyOn(repository, "appendEvent");
     const service = new TaskService(repository, new MockImageProvider());
 
-    await expect(service.create(input)).rejects.toThrow("STAGE_A_UNSUPPORTED_TOOL");
+    await expect(service.create(userId, input)).rejects.toThrow("STAGE_A_UNSUPPORTED_TOOL");
 
     expect(save).not.toHaveBeenCalled();
     expect(appendEvent).not.toHaveBeenCalled();
@@ -270,7 +272,7 @@ describe("TaskService", () => {
     const appendEvent = vi.spyOn(repository, "appendEvent");
     const service = new TaskService(repository, new MockImageProvider());
 
-    await expect(service.create(input)).rejects.toThrow(
+    await expect(service.create(userId, input)).rejects.toThrow(
       "STAGE_A_UNSUPPORTED_DEMO_INPUT"
     );
 
@@ -289,9 +291,9 @@ describe("TaskService", () => {
       clock
     );
 
-    const created = await service.create(portraitInput);
-    const finished = await service.confirmAndRunPreview(created.taskId);
-    const events = await service.getEvents(created.taskId, 0);
+    const created = await service.create(userId, portraitInput);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
 
     expect(events.slice(0, 3)).toMatchObject([
       {
@@ -321,15 +323,15 @@ describe("TaskService", () => {
       new InMemoryTaskRepository(),
       new ThrowingImageProvider()
     );
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
 
-    const finished = await service.confirmAndRunPreview(created.taskId);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
 
     expect(finished).toMatchObject({
       status: "FAILED",
       failureCode: "PREVIEW_PROVIDER_FAILED"
     });
-    await expect(service.getEvents(created.taskId, 0)).resolves.toMatchObject([
+    await expect(service.getEvents(userId, created.taskId, 0)).resolves.toMatchObject([
       { type: "DIAGNOSIS_STARTED" },
       { type: "DIAGNOSIS_FINDING" },
       { type: "PLAN_READY" },
@@ -345,10 +347,10 @@ describe("TaskService", () => {
   it("records an actual quality retry and returns to processing before succeeding", async () => {
     const repository = new RecordingTaskRepository();
     const service = new TaskService(repository, new RetryingImageProvider());
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
 
-    const finished = await service.confirmAndRunPreview(created.taskId);
-    const events = await service.getEvents(created.taskId, 3);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 3);
 
     expect(finished.status).toBe("SUCCEEDED");
     expect(events.map((event) => event.type)).toEqual([
@@ -368,11 +370,11 @@ describe("TaskService", () => {
     const repository = new InMemoryTaskRepository();
     const provider = new CountingImageProvider();
     const service = new TaskService(repository, provider);
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
 
     const results = await Promise.allSettled([
-      service.confirmAndRunPreview(created.taskId),
-      service.confirmAndRunPreview(created.taskId)
+      service.confirmAndRunPreview(userId, created.taskId),
+      service.confirmAndRunPreview(userId, created.taskId)
     ]);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -380,7 +382,7 @@ describe("TaskService", () => {
       { reason: new Error("TASK_CONFIRMATION_CONFLICT") }
     ]);
     expect(provider.calls).toBe(1);
-    await expect(service.getEvents(created.taskId, 0)).resolves.toHaveLength(9);
+    await expect(service.getEvents(userId, created.taskId, 0)).resolves.toHaveLength(9);
   });
 
   it("fails before persistence when a provider inserts an invalid success event", async () => {
@@ -445,10 +447,10 @@ describe("TaskService", () => {
         new InMemoryTaskRepository(),
         new FixedResultImageProvider(result)
       );
-      const created = await service.create(portraitInput);
+      const created = await service.create(userId, portraitInput);
 
-      const finished = await service.confirmAndRunPreview(created.taskId);
-      const events = await service.getEvents(created.taskId, 0);
+      const finished = await service.confirmAndRunPreview(userId, created.taskId);
+      const events = await service.getEvents(userId, created.taskId, 0);
 
       expect(finished).toMatchObject({
         status: "FAILED",
@@ -482,10 +484,10 @@ describe("TaskService", () => {
       new InMemoryTaskRepository(),
       new FixedResultImageProvider(result)
     );
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
 
-    const finished = await service.confirmAndRunPreview(created.taskId);
-    const events = await service.getEvents(created.taskId, 0);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
 
     expect(finished).toMatchObject({
       status: "FAILED",
@@ -523,10 +525,10 @@ describe("TaskService", () => {
       new InMemoryTaskRepository(),
       new FixedResultImageProvider(result)
     );
-    const created = await service.create(portraitInput);
+    const created = await service.create(userId, portraitInput);
 
-    const finished = await service.confirmAndRunPreview(created.taskId);
-    const events = await service.getEvents(created.taskId, 0);
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
 
     expect(finished).toMatchObject({
       status: "FAILED",
@@ -548,13 +550,13 @@ describe("TaskService", () => {
     const service = new TaskService(repository, new MockImageProvider());
     const input = structuredClone(portraitInput);
 
-    const creating = service.create(input);
+    const creating = service.create(userId, input);
     input.direction = "WARM";
     input.parameters.naturalness = 5;
     repository.release();
     const created = await creating;
 
-    const events = await service.getEvents(created.taskId, 0);
+    const events = await service.getEvents(userId, created.taskId, 0);
     expect(events.at(-1)).toMatchObject({
       type: "PLAN_READY",
       payload: { direction: "NATURAL" }
@@ -565,6 +567,7 @@ describe("TaskService", () => {
     const repository = new InMemoryTaskRepository();
     const storedTask: StoredTask = {
       taskId: "isolation-task",
+      userId,
       status: "REVIEWING",
       tool: "PORTRAIT_RETOUCH",
       lastSequence: 0,
@@ -579,8 +582,8 @@ describe("TaskService", () => {
     await repository.save(storedTask);
     await repository.appendEvent(firstEvent);
 
-    const found = await repository.find(storedTask.taskId);
-    const events = await repository.eventsAfter(storedTask.taskId, 0);
+    const found = await repository.findForUser(userId, storedTask.taskId);
+    const events = await repository.eventsAfter(userId, storedTask.taskId, 0);
     if (!found || found.input.tool !== "PORTRAIT_RETOUCH") {
       throw new Error("stored task must be found");
     }
@@ -591,10 +594,10 @@ describe("TaskService", () => {
       .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
     await expect(repository.appendEvent({ ...firstEvent, eventId: "event-gap", sequence: 3 }))
       .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
-    await expect(repository.find(storedTask.taskId)).resolves.toMatchObject({
+    await expect(repository.findForUser(userId, storedTask.taskId)).resolves.toMatchObject({
       input: { parameters: { naturalness: 80 } }
     });
-    await expect(repository.eventsAfter(storedTask.taskId, 0)).resolves.toMatchObject([
+    await expect(repository.eventsAfter(userId, storedTask.taskId, 0)).resolves.toMatchObject([
       { payload: { direction: "NATURAL" } }
     ]);
   });

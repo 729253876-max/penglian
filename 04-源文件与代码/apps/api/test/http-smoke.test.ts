@@ -8,6 +8,9 @@ const portraitInput = {
   direction: "NATURAL",
   parameters: { brightness: 0, warmth: 0, naturalness: 80 }
 } as const;
+const headers = {
+  authorization: "Bearer fictional-http-smoke-token"
+};
 
 describe("real HTTP smoke on port 3100", () => {
   let app: FastifyInstance | undefined;
@@ -17,12 +20,16 @@ describe("real HTTP smoke on port 3100", () => {
   });
 
   it("serves the stage-A task lifecycle over a real TCP listener", async () => {
-    app = buildApp();
+    app = buildApp({
+      sessionAuthenticator: {
+        authenticate: async () => ({ userId: "http-smoke-user" })
+      }
+    });
     await app.listen({ host: "127.0.0.1", port: 3100 });
 
     const createResponse = await fetch("http://127.0.0.1:3100/v1/tasks", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(portraitInput)
     });
     const created = await createResponse.json();
@@ -37,7 +44,7 @@ describe("real HTTP smoke on port 3100", () => {
     const taskId = String(created.taskId);
     const previewResponse = await fetch(
       `http://127.0.0.1:3100/v1/tasks/${taskId}/preview`,
-      { method: "POST" }
+      { method: "POST", headers }
     );
     const preview = await previewResponse.json();
 
@@ -50,7 +57,8 @@ describe("real HTTP smoke on port 3100", () => {
     });
 
     const readResponse = await fetch(
-      `http://127.0.0.1:3100/v1/tasks/${taskId}`
+      `http://127.0.0.1:3100/v1/tasks/${taskId}`,
+      { headers }
     );
     const read = await readResponse.json();
 
@@ -62,7 +70,8 @@ describe("real HTTP smoke on port 3100", () => {
     });
 
     const eventsResponse = await fetch(
-      `http://127.0.0.1:3100/v1/tasks/${taskId}/events?afterSequence=0`
+      `http://127.0.0.1:3100/v1/tasks/${taskId}/events?afterSequence=0`,
+      { headers }
     );
     const events = await eventsResponse.json();
 
@@ -76,7 +85,7 @@ describe("real HTTP smoke on port 3100", () => {
 
     const oldPhotoResponse = await fetch("http://127.0.0.1:3100/v1/tasks", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify({
         tool: "OLD_PHOTO_RESTORE",
         inputAssetId: "demo-old-photo-001",

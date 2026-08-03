@@ -1,4 +1,7 @@
-import Fastify, { type FastifyServerOptions } from "fastify";
+import Fastify, {
+  type FastifyServerOptions,
+  type preHandlerHookHandler
+} from "fastify";
 import { TaskService } from "./application/task-service.js";
 import { InMemoryTaskRepository } from "./infrastructure/in-memory-task-repository.js";
 import { MockImageProvider } from "./infrastructure/mock-image-provider.js";
@@ -37,8 +40,15 @@ export function buildApp(options: BuildAppOptions = {}) {
   const authenticate = options.sessionAuthenticator
     ? installAuthentication(app, options.sessionAuthenticator)
     : undefined;
+  const requireTaskAuthentication: preHandlerHookHandler = authenticate ??
+    (async (_request, reply) => {
+      await reply.code(401).send({ code: "UNAUTHORIZED" });
+    });
 
-  app.register(registerTaskRoutes, service);
+  app.register(registerTaskRoutes, {
+    service,
+    authenticate: requireTaskAuthentication
+  });
   app.get("/health/live", async () => ({ status: "live" }));
   app.get("/health/ready", async (_request, reply) => {
     if (!options.readiness) {

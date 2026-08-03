@@ -12,16 +12,24 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.tasks.set(task.taskId, structuredClone(task));
   }
 
-  public async find(taskId: string): Promise<StoredTask | undefined> {
-    const task = this.tasks.get(taskId);
-    return task ? structuredClone(task) : undefined;
-  }
-
-  public async claimAwaitingConfirmation(
+  public async findForUser(
+    userId: string,
     taskId: string
   ): Promise<StoredTask | undefined> {
     const task = this.tasks.get(taskId);
-    if (!task || task.status !== "AWAITING_CONFIRMATION") {
+    return task?.userId === userId ? structuredClone(task) : undefined;
+  }
+
+  public async claimAwaitingConfirmation(
+    userId: string,
+    taskId: string
+  ): Promise<StoredTask | undefined> {
+    const task = this.tasks.get(taskId);
+    if (
+      !task ||
+      task.userId !== userId ||
+      task.status !== "AWAITING_CONFIRMATION"
+    ) {
       return undefined;
     }
 
@@ -44,9 +52,14 @@ export class InMemoryTaskRepository implements TaskRepository {
   }
 
   public async eventsAfter(
+    userId: string,
     taskId: string,
     sequence: number
   ): Promise<EditTraceEvent[]> {
+    const task = this.tasks.get(taskId);
+    if (!task || task.userId !== userId) {
+      return [];
+    }
     return (this.events.get(taskId) ?? [])
       .filter((event) => event.sequence > sequence)
       .map((event) => structuredClone(event));
