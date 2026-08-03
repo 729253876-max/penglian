@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { ConsentInput } from "@photo-ai/contracts";
+import type {
+  ConsentInput,
+  RefreshInput
+} from "@photo-ai/contracts";
 import {
   IdentityService,
   type IdentityRepository,
@@ -67,6 +70,7 @@ class FakeIdentityRepository implements IdentityRepository, IdentityTransaction 
     sessions: []
   };
   public failNextInsert = false;
+  public injectConcurrentSessionAfterNextRevokeAll = false;
   private transactionTail: Promise<void> = Promise.resolve();
 
   public async transaction<T>(work: (tx: IdentityTransaction) => Promise<T>): Promise<T> {
@@ -194,6 +198,24 @@ class FakeIdentityRepository implements IdentityRepository, IdentityTransaction 
         session.revokedAt = new Date(revokedAt);
       }
     }
+
+    if (this.injectConcurrentSessionAfterNextRevokeAll) {
+      this.injectConcurrentSessionAfterNextRevokeAll = false;
+      const user = this.state.users.find((candidate) => candidate.id === targetUserId);
+      if (user?.status === "ACTIVE") {
+        this.state.sessions.push({
+          id: "concurrent-login-session",
+          userId: targetUserId,
+          deviceIdHash: createHash("sha256").update("racing-device").digest(),
+          accessTokenHash: Buffer.alloc(32, 0xa1),
+          accessExpiresAt: new Date(revokedAt.getTime() + 2 * 60 * 60 * 1_000),
+          refreshTokenHash: Buffer.alloc(32, 0xb1),
+          refreshExpiresAt: new Date(revokedAt.getTime() + 30 * 24 * 60 * 60 * 1_000),
+          lastUsedAt: new Date(revokedAt),
+          revokedAt: null
+        });
+      }
+    }
   }
 
   public async markUserDeleting(targetUserId: string, requestedAt: Date): Promise<void> {
@@ -243,6 +265,14 @@ async function login(
   openId = "openid-1"
 ) {
   return service.login({ openId, deviceId, consent });
+}
+
+async function refresh(
+  service: IdentityService,
+  refreshToken: string,
+  deviceId = "device-1"
+) {
+  return service.refresh({ refreshToken, deviceId });
 }
 
 describe("IdentityService", () => {
@@ -315,23 +345,50 @@ describe("IdentityService", () => {
     expect(newPair.accessToken).not.toBe(oldPair.accessToken);
     expect(newPair.refreshToken).not.toBe(oldPair.refreshToken);
     expect(newPair.accessExpiresAt.getTime() - refreshNow.getTime()).toBe(2 * 60 * 60 * 1000);
-    expect(newPair.refreshExpiresAt.getTime() - refreshNow.getTime()).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(newPair.refreshExpiresAt).toEqual(oldPair.refreshExpiresAt);
     expect(repository.activeSessions()).toHaveLength(1);
     expect(repository.state.sessions).toHaveLength(2);
-    await expect(service.refresh(oldPair.refreshToken)).rejects.toThrow("SESSION_REVOKED");
+    await expect(refresh(service, oldPair.refreshToken)).rejects.toThrow("SESSION_REVOKED");
+  });
+
+  it("rejects a runtime refresh call that omits the contract-required device id", async () => {
+    const { repository, service } = createFixture();
+    const oldPair = await login(service);
+
+    await expect(
+      service.refresh(oldPair.refreshToken as unknown as RefreshInput)
+    ).rejects.toThrow("INVALID_REFRESH_INPUT");
+
+    expect(repository.activeSessions()).toHaveLength(1);
+    expect(repository.state.sessions).toHaveLength(1);
+  });
+
+  it("never extends the original 30-day refresh deadline across repeated rotations", async () => {
+    const { clock, service } = createFixture();
+    let pair = await login(service);
+    const absoluteDeadline = pair.refreshExpiresAt;
+
+    for (const elapsedDays of [10, 10, 9]) {
+      clock.advance(elapsedDays * 24 * 60 * 60 * 1_000);
+      pair = await refresh(service, pair.refreshToken);
+      expect(pair.refreshExpiresAt).toEqual(absoluteDeadline);
+    }
+
+    clock.advance(24 * 60 * 60 * 1_000);
+    await expect(refresh(service, pair.refreshToken)).rejects.toThrow("SESSION_EXPIRED");
   });
 
   it("rejects expired, revoked, and wrong-device refresh attempts", async () => {
     const expiredFixture = createFixture();
     const expired = await login(expiredFixture.service);
     expiredFixture.clock.advance(30 * 24 * 60 * 60 * 1000 + 1);
-    await expect(expiredFixture.service.refresh(expired.refreshToken))
+    await expect(refresh(expiredFixture.service, expired.refreshToken))
       .rejects.toThrow("SESSION_EXPIRED");
 
     const revokedFixture = createFixture();
     const revoked = await login(revokedFixture.service);
     await revokedFixture.service.logoutCurrent(revoked.accessToken);
-    await expect(revokedFixture.service.refresh(revoked.refreshToken))
+    await expect(refresh(revokedFixture.service, revoked.refreshToken))
       .rejects.toThrow("SESSION_REVOKED");
 
     const deviceFixture = createFixture();
@@ -347,8 +404,8 @@ describe("IdentityService", () => {
     const oldPair = await login(service);
 
     const results = await Promise.allSettled([
-      service.refresh(oldPair.refreshToken),
-      service.refresh(oldPair.refreshToken)
+      refresh(service, oldPair.refreshToken),
+      refresh(service, oldPair.refreshToken)
     ]);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -363,10 +420,10 @@ describe("IdentityService", () => {
     const oldPair = await login(service);
     repository.failNextInsert = true;
 
-    await expect(service.refresh(oldPair.refreshToken)).rejects.toThrow("TEST_INSERT_FAILED");
+    await expect(refresh(service, oldPair.refreshToken)).rejects.toThrow("TEST_INSERT_FAILED");
 
     expect(repository.activeSessions()).toHaveLength(1);
-    await expect(service.refresh(oldPair.refreshToken)).resolves.toBeDefined();
+    await expect(refresh(service, oldPair.refreshToken)).resolves.toBeDefined();
   });
 
   it("logs out the current session without revoking other devices", async () => {
@@ -397,6 +454,7 @@ describe("IdentityService", () => {
     const first = await login(service, "device-1");
     await login(service, "device-2");
     const requestedAt = clock.now();
+    repository.injectConcurrentSessionAfterNextRevokeAll = true;
 
     await service.requestDeletion(first.accessToken);
 

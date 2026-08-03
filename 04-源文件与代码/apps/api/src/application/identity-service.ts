@@ -2,9 +2,10 @@ import {
   randomUUID,
   timingSafeEqual
 } from "node:crypto";
-import type {
-  RefreshInput,
-  WechatLoginInput
+import {
+  RefreshInputSchema,
+  type RefreshInput,
+  type WechatLoginInput
 } from "@photo-ai/contracts";
 import type { ApiConfig } from "../config.js";
 import {
@@ -153,11 +154,13 @@ export class IdentityService {
     return pair.output;
   }
 
-  public async refresh(input: RefreshInput | string): Promise<ApplicationSessionPair> {
-    const refreshToken = typeof input === "string" ? input : input.refreshToken;
-    const suppliedDeviceHash = typeof input === "string"
-      ? undefined
-      : digestToken(input.deviceId);
+  public async refresh(input: RefreshInput): Promise<ApplicationSessionPair> {
+    const parsed = RefreshInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new Error("INVALID_REFRESH_INPUT");
+    }
+    const refreshToken = parsed.data.refreshToken;
+    const suppliedDeviceHash = digestToken(parsed.data.deviceId);
     const refreshTokenHash = digestToken(refreshToken);
     const now = this.clock.now();
 
@@ -165,13 +168,12 @@ export class IdentityService {
       const current = await tx.findSessionByRefreshHashForUpdate(refreshTokenHash);
       this.requireUsableSession(current, now, "refresh");
       if (
-        suppliedDeviceHash &&
         !timingSafeEqual(current.deviceIdHash, suppliedDeviceHash)
       ) {
         throw new Error("SESSION_REVOKED");
       }
 
-      const replacement = this.buildSessionPair(now);
+      const replacement = this.buildSessionPair(now, current.refreshExpiresAt);
       await tx.revokeSession(current.id, now);
       await tx.insertSession(
         this.toStoredSession(
@@ -214,12 +216,12 @@ export class IdentityService {
     await this.repository.transaction(async (tx) => {
       const session = await tx.findSessionByAccessHashForUpdate(accessTokenHash);
       this.requireUsableSession(session, now, "access");
-      await tx.revokeAllSessions(session.userId, now);
       await tx.markUserDeleting(session.userId, now);
+      await tx.revokeAllSessions(session.userId, now);
     });
   }
 
-  private buildSessionPair(now: Date): {
+  private buildSessionPair(now: Date, refreshExpiresAt?: Date): {
     access: IssuedToken;
     refresh: IssuedToken;
     output: ApplicationSessionPair;
@@ -233,7 +235,9 @@ export class IdentityService {
         accessToken: access.raw,
         accessExpiresAt: new Date(now.getTime() + accessLifetimeMilliseconds),
         refreshToken: refresh.raw,
-        refreshExpiresAt: new Date(now.getTime() + refreshLifetimeMilliseconds)
+        refreshExpiresAt: refreshExpiresAt
+          ? new Date(refreshExpiresAt)
+          : new Date(now.getTime() + refreshLifetimeMilliseconds)
       }
     };
   }
