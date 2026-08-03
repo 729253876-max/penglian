@@ -197,7 +197,7 @@ class BehavioralMySqlConnection {
       return [rows, []];
     }
 
-    if (statement.startsWith("SELECT id, user_id, device_id_hash")) {
+    if (statement.startsWith("SELECT s.id, s.user_id, s.device_id_hash")) {
       if (!statement.endsWith("LIMIT 1 FOR UPDATE")) {
         throw new Error("SESSION_LOOKUP_MUST_LOCK");
       }
@@ -206,7 +206,14 @@ class BehavioralMySqlConnection {
         ? "refresh_token_hash"
         : "access_token_hash";
       const row = this.database.sessions.find((candidate) => candidate[column].equals(hash));
-      return [[...(row ? [row] : [])], []];
+      const activeUserRequired = statement.includes("u.status = 'ACTIVE'");
+      const user = row
+        ? this.database.users.find((candidate) => candidate.id === row.user_id)
+        : undefined;
+      const visibleRow = row && (!activeUserRequired || user?.status === "ACTIVE")
+        ? row
+        : undefined;
+      return [[...(visibleRow ? [visibleRow] : [])], []];
     }
 
     if (statement.startsWith("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND device_id_hash")) {
@@ -358,6 +365,12 @@ describe("MySqlIdentityRepository", () => {
 
   it("locks token lookups and revokes the LRU overflow deterministically", async () => {
     const { connection, repository } = createRepository();
+    connection.database.users.push({
+      id: "user-1",
+      status: "ACTIVE",
+      created_at: new Date("2030-01-01T00:00:00.000Z"),
+      deletion_requested_at: null
+    });
     for (let index = 1; index <= 6; index += 1) {
       const value = session(
         `session-${index}`,
@@ -394,6 +407,27 @@ describe("MySqlIdentityRepository", () => {
       .filter((row) => row.revoked_at !== null)
       .map((row) => row.id)).toEqual(["session-1", "session-2"]);
   });
+
+  it.each(["DELETING", "DELETED"] as const)(
+    "does not return a legacy access session for a %s user",
+    async (status) => {
+      const { connection, repository } = createRepository();
+      connection.database.users.push({
+        id: "user-1",
+        status,
+        created_at: new Date("2030-01-01T00:00:00.000Z"),
+        deletion_requested_at: new Date("2030-01-02T00:00:00.000Z")
+      });
+      const legacySession = session("session-1", "2030-01-01T00:00:01.000Z");
+      await repository.transaction((tx) => tx.insertSession(legacySession));
+
+      const found = await repository.transaction((tx) =>
+        tx.findSessionByAccessHashForUpdate(legacySession.accessTokenHash)
+      );
+
+      expect(found).toBeUndefined();
+    }
+  );
 
   it("revokes only active sessions for the selected device", async () => {
     const { connection, repository } = createRepository();

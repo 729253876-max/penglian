@@ -231,11 +231,20 @@ class MySqlIdentityTransaction implements IdentityTransaction {
     tokenColumn: "access_token_hash" | "refresh_token_hash",
     tokenHash: Buffer
   ): Promise<StoredSession | undefined> {
+    const activeUserJoin = tokenColumn === "access_token_hash"
+      ? "INNER JOIN users u ON u.id = s.user_id"
+      : "";
+    const activeUserFilter = tokenColumn === "access_token_hash"
+      ? "AND u.status = 'ACTIVE'"
+      : "";
     const [rows] = await this.connection.execute<SessionRow[]>(
-      `SELECT id, user_id, device_id_hash, access_token_hash, access_expires_at,
-              refresh_token_hash, refresh_expires_at, last_used_at, revoked_at
-       FROM sessions
-       WHERE ${tokenColumn} = ?
+      `SELECT s.id, s.user_id, s.device_id_hash, s.access_token_hash,
+              s.access_expires_at, s.refresh_token_hash, s.refresh_expires_at,
+              s.last_used_at, s.revoked_at
+       FROM sessions s
+       ${activeUserJoin}
+       WHERE s.${tokenColumn} = ?
+       ${activeUserFilter}
        LIMIT 1
        FOR UPDATE`,
       [tokenHash]

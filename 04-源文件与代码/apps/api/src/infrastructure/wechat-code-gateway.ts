@@ -19,10 +19,11 @@ export class WechatCodeGateway {
     url.searchParams.set("js_code", code);
     url.searchParams.set("grant_type", "authorization_code");
 
+    const signal = AbortSignal.timeout(this.timeoutMilliseconds);
     let response: Response;
     try {
       response = await this.fetcher(url, {
-        signal: AbortSignal.timeout(this.timeoutMilliseconds)
+        signal
       });
     } catch (error) {
       if (isAbortError(error)) {
@@ -38,10 +39,16 @@ export class WechatCodeGateway {
       openid?: unknown;
       unionid?: unknown;
       errcode?: unknown;
-    };
+    } | null;
     try {
       body = await response.json() as typeof body;
-    } catch {
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) {
+        throw new Error("WECHAT_TIMEOUT");
+      }
+      throw new Error("WECHAT_INVALID_RESPONSE");
+    }
+    if (body === null) {
       throw new Error("WECHAT_INVALID_RESPONSE");
     }
     if (typeof body.errcode === "number" && body.errcode !== 0) {

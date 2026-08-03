@@ -46,7 +46,7 @@ export function createMySqlCurrentUserReader(
          WHERE u.id = ?
            AND u.status IN ('ACTIVE', 'DELETING')
            AND s.revoked_at IS NULL
-           AND s.access_expires_at > ?
+           AND s.refresh_expires_at > ?
          GROUP BY u.id, u.status
          LIMIT 1`,
         [userId, now]

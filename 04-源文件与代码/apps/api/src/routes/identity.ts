@@ -82,7 +82,10 @@ export async function registerIdentityRoutes(
           return reply.code(500).send({ code: "INTERNAL_ERROR" });
         }
         return reply.send(currentUser);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message === "CURRENT_USER_NOT_FOUND") {
+          return reply.code(401).send({ code: "UNAUTHORIZED" });
+        }
         return reply.code(500).send({ code: "INTERNAL_ERROR" });
       }
     });

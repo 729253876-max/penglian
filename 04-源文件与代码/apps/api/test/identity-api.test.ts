@@ -390,6 +390,39 @@ describe("identity API", () => {
   });
 
   it.each([
+    ["CURRENT_USER_NOT_FOUND", 401, "UNAUTHORIZED"],
+    ["DATABASE_UNAVAILABLE", 500, "INTERNAL_ERROR"]
+  ] as const)(
+    "maps current-user reader error %s to a stable %s response",
+    async (readerError, expectedStatus, expectedCode) => {
+      app = buildApp({
+        identityService: {
+          login: async () => { throw new Error("LOGIN_MUST_NOT_RUN"); },
+          refresh: async () => { throw new Error("REFRESH_MUST_NOT_RUN"); }
+        },
+        wechatCodeGateway: {
+          exchange: async () => { throw new Error("EXCHANGE_MUST_NOT_RUN"); }
+        },
+        sessionAuthenticator: {
+          authenticate: async () => ({ userId })
+        },
+        currentUserReader: {
+          get: async () => { throw new Error(readerError); }
+        }
+      } as unknown as Parameters<typeof buildApp>[0]);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { authorization: "Bearer fictional-access-token" }
+      });
+
+      expect(response.statusCode).toBe(expectedStatus);
+      expect(response.json()).toEqual({ code: expectedCode });
+    }
+  );
+
+  it.each([
     ["DELETE", "/v1/sessions/current", "logoutCurrent"],
     ["DELETE", "/v1/sessions", "logoutAll"],
     ["POST", "/v1/account/deletion", "requestDeletion"]
@@ -574,14 +607,14 @@ describe("production session authentication", () => {
     expect(response.json()).toEqual({ code: "UNAUTHORIZED" });
   });
 
-  it("reads current status and active device count from MySQL for /v1/me", async () => {
+  it("counts devices with live refresh sessions even after access expiry", async () => {
     const reader = createMySqlCurrentUserReader({
-      execute: async (_sql: string, values?: unknown[]) => {
+      execute: async (sql: string, values?: unknown[]) => {
         expect(values).toEqual([userId, now]);
         return [[{
           user_id: userId,
           status: "DELETING",
-          active_device_count: 2
+          active_device_count: sql.includes("s.refresh_expires_at > ?") ? 2 : 0
         }], []] as never;
       }
     }, { now: () => new Date(now) });
@@ -688,6 +721,54 @@ describe("WechatCodeGateway", () => {
 
     await expect(gateway.exchange("fictional-timeout-code"))
       .rejects.toThrow("WECHAT_TIMEOUT");
+  });
+
+  it("maps an abort while parsing the response body to a stable timeout code", async () => {
+    const gateway = new WechatCodeGateway(config, async () => ({
+      ok: true,
+      json: async () => {
+        const error = new Error("fictional-sensitive-body-abort");
+        error.name = "AbortError";
+        throw error;
+      }
+    } as unknown as Response));
+
+    await expect(rejectedMessage(gateway.exchange("fictional-body-timeout-code")))
+      .resolves.toBe("WECHAT_TIMEOUT");
+  });
+
+  it("maps an already-aborted response signal to a stable timeout code", async () => {
+    const gateway = new WechatCodeGateway(config, async (_input, init) => ({
+      ok: true,
+      json: async () => {
+        const signal = init?.signal;
+        if (!signal) {
+          throw new Error("TEST_SIGNAL_MISSING");
+        }
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        throw new SyntaxError("fictional-sensitive-malformed-body");
+      }
+    } as unknown as Response), 1);
+
+    await expect(rejectedMessage(gateway.exchange("fictional-aborted-body-code")))
+      .resolves.toBe("WECHAT_TIMEOUT");
+  });
+
+  it("maps a valid JSON null body to a stable invalid-response code", async () => {
+    const gateway = new WechatCodeGateway(config, async () =>
+      new Response("null", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+
+    await expect(rejectedMessage(gateway.exchange("fictional-null-body-code")))
+      .resolves.toBe("WECHAT_INVALID_RESPONSE");
   });
 
   it("maps a network failure without retaining sensitive exception text", async () => {
