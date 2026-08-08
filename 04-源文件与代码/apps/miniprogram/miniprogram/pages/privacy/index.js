@@ -47,6 +47,6 @@ Page({
     decline() {
         if (this.data.submitting)
             return;
-        wx.navigateBack({ delta: 1 });
+        wx.reLaunch({ url: "/pages/home/index" });
     }
 });

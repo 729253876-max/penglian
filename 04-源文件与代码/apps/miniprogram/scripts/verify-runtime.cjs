@@ -16,6 +16,11 @@ const temporaryRoot = fs.mkdtempSync(
 const isolatedRoot = path.join(temporaryRoot, "compiled");
 
 async function verifyRuntime() {
+  const now = Date.now();
+  const accessExpiresAt = new Date(now + 60 * 60 * 1000).toISOString();
+  const refreshExpiresAt = new Date(
+    now + 29 * 24 * 60 * 60 * 1000
+  ).toISOString();
   fs.cpSync(buildRoot, isolatedRoot, { recursive: true });
   fs.writeFileSync(
     path.join(isolatedRoot, "package.json"),
@@ -26,9 +31,9 @@ async function verifyRuntime() {
       if (key !== "photo-ai:session") return undefined;
       return {
         accessToken: "runtime-check-access",
-        accessExpiresAt: "2099-01-02T05:04:05.000Z",
+        accessExpiresAt,
         refreshToken: "runtime-check-refresh",
-        refreshExpiresAt: "2099-02-01T05:04:05.000Z"
+        refreshExpiresAt
       };
     },
     removeStorageSync() {},

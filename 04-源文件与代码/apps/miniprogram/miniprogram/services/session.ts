@@ -5,6 +5,10 @@ const SESSION_STORAGE_KEY = "photo-ai:session";
 const DEVICE_STORAGE_KEY = "photo-ai:device-id";
 const APPROVED_POLICY_VERSION = "2026-08-02";
 const PRIVACY_PAGE = "/pages/privacy/index";
+const MAX_ACCESS_LIFETIME_MS = 2 * 60 * 60 * 1000;
+const MAX_REFRESH_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+
+let refreshInFlight: Promise<SessionPair> | undefined;
 
 type Response = {
   statusCode: number;
@@ -25,17 +29,22 @@ function hasExactKeys(
   ));
 }
 
-function isDateTime(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) &&
-    Number.isFinite(Date.parse(value))
-  );
+function dateTime(value: unknown): { value: string; time: number } | undefined {
+  if (typeof value !== "string") return undefined;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time) || new Date(time).toISOString() !== value) return undefined;
+  return { value, time };
 }
 
-function parseSessionPair(value: unknown): SessionPair {
+function parseSessionPair(
+  value: unknown,
+  allowExpiredAccess = false
+): SessionPair {
+  if (!isRecord(value)) throw new Error("API_RESPONSE_INVALID");
+  const accessExpiry = dateTime(value.accessExpiresAt);
+  const refreshExpiry = dateTime(value.refreshExpiresAt);
+  const now = Date.now();
   if (
-    !isRecord(value) ||
     !hasExactKeys(value, [
       "accessToken",
       "accessExpiresAt",
@@ -44,19 +53,24 @@ function parseSessionPair(value: unknown): SessionPair {
     ]) ||
     typeof value.accessToken !== "string" ||
     value.accessToken.length === 0 ||
-    !isDateTime(value.accessExpiresAt) ||
+    !accessExpiry ||
     typeof value.refreshToken !== "string" ||
     value.refreshToken.length === 0 ||
-    !isDateTime(value.refreshExpiresAt)
+    !refreshExpiry ||
+    (!allowExpiredAccess && accessExpiry.time <= now) ||
+    accessExpiry.time > now + MAX_ACCESS_LIFETIME_MS ||
+    refreshExpiry.time <= now ||
+    refreshExpiry.time > now + MAX_REFRESH_LIFETIME_MS ||
+    accessExpiry.time > refreshExpiry.time
   ) {
     throw new Error("API_RESPONSE_INVALID");
   }
 
   return {
     accessToken: value.accessToken,
-    accessExpiresAt: value.accessExpiresAt,
+    accessExpiresAt: accessExpiry.value,
     refreshToken: value.refreshToken,
-    refreshExpiresAt: value.refreshExpiresAt
+    refreshExpiresAt: refreshExpiry.value
   };
 }
 
@@ -65,13 +79,13 @@ function parseConsent(value: unknown): ConsentInput {
     !isRecord(value) ||
     !hasExactKeys(value, ["policyVersion", "metadataRemoval"]) ||
     value.policyVersion !== APPROVED_POLICY_VERSION ||
-    typeof value.metadataRemoval !== "boolean"
+    value.metadataRemoval !== true
   ) {
     throw new Error("CONSENT_INVALID");
   }
   return {
     policyVersion: value.policyVersion,
-    metadataRemoval: value.metadataRemoval
+    metadataRemoval: true
   };
 }
 
@@ -79,7 +93,7 @@ function storedSession(): SessionPair | undefined {
   const value = wx.getStorageSync(SESSION_STORAGE_KEY) as unknown;
   if (value === undefined || value === null || value === "") return undefined;
   try {
-    return parseSessionPair(value);
+    return parseSessionPair(value, true);
   } catch {
     wx.removeStorageSync(SESSION_STORAGE_KEY);
     return undefined;
@@ -173,9 +187,31 @@ async function refreshSession(pair: SessionPair): Promise<SessionPair> {
   return refreshed;
 }
 
-function returnToPrivacy(code: "SESSION_REQUIRED" | "SESSION_EXPIRED"): Error {
-  wx.removeStorageSync(SESSION_STORAGE_KEY);
-  wx.reLaunch({ url: PRIVACY_PAGE });
+function samePair(left: SessionPair, right: SessionPair): boolean {
+  return left.accessToken === right.accessToken &&
+    left.accessExpiresAt === right.accessExpiresAt &&
+    left.refreshToken === right.refreshToken &&
+    left.refreshExpiresAt === right.refreshExpiresAt;
+}
+
+function refreshSingleFlight(pair: SessionPair): Promise<SessionPair> {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshSession(pair).finally(() => {
+      refreshInFlight = undefined;
+    });
+  }
+  return refreshInFlight;
+}
+
+function returnToPrivacy(
+  code: "SESSION_REQUIRED" | "SESSION_EXPIRED",
+  expected?: SessionPair
+): Error {
+  const current = storedSession();
+  if (!expected || !current || samePair(current, expected)) {
+    wx.removeStorageSync(SESSION_STORAGE_KEY);
+    wx.reLaunch({ url: PRIVACY_PAGE });
+  }
   return new Error(code);
 }
 
@@ -209,12 +245,6 @@ function parseProtectedResponse<T>(
 
 export async function ensureSession(input: ConsentInput): Promise<SessionPair> {
   const consent = parseConsent(input);
-  const current = storedSession();
-  if (current && Date.parse(current.accessExpiresAt) > Date.now()) {
-    return current;
-  }
-  if (current) wx.removeStorageSync(SESSION_STORAGE_KEY);
-
   const code = await wxLogin();
   const pair = await identityRequest("/v1/identity/wechat", {
     code,
@@ -232,19 +262,43 @@ export async function authenticatedRequest<T>(
   const current = storedSession();
   if (!current) throw returnToPrivacy("SESSION_REQUIRED");
 
-  const first = await protectedRequest(options, current.accessToken);
+  let requestPair = current;
+  let proactivelyRefreshed = false;
+  if (Date.parse(current.accessExpiresAt) <= Date.now()) {
+    proactivelyRefreshed = true;
+    try {
+      requestPair = await refreshSingleFlight(current);
+    } catch {
+      throw returnToPrivacy("SESSION_EXPIRED", current);
+    }
+  }
+
+  const first = await protectedRequest(options, requestPair.accessToken);
   if (first.statusCode !== 401) return parseProtectedResponse(first, parse);
+
+  if (proactivelyRefreshed) {
+    throw returnToPrivacy("SESSION_EXPIRED", requestPair);
+  }
+
+  const latest = storedSession();
+  if (latest && !samePair(latest, current)) {
+    const retryWithLatest = await protectedRequest(options, latest.accessToken);
+    if (retryWithLatest.statusCode === 401) {
+      throw returnToPrivacy("SESSION_EXPIRED", latest);
+    }
+    return parseProtectedResponse(retryWithLatest, parse);
+  }
 
   let refreshed: SessionPair;
   try {
-    refreshed = await refreshSession(current);
+    refreshed = await refreshSingleFlight(current);
   } catch {
-    throw returnToPrivacy("SESSION_EXPIRED");
+    throw returnToPrivacy("SESSION_EXPIRED", current);
   }
 
   const retry = await protectedRequest(options, refreshed.accessToken);
   if (retry.statusCode === 401) {
-    throw returnToPrivacy("SESSION_EXPIRED");
+    throw returnToPrivacy("SESSION_EXPIRED", refreshed);
   }
   return parseProtectedResponse(retry, parse);
 }

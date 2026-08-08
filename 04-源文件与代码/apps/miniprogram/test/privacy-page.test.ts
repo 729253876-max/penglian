@@ -24,6 +24,7 @@ async function loadPrivacyPage(): Promise<PageConfig> {
   vi.stubGlobal("Page", (definition: PageConfig) => { config = definition; });
   vi.stubGlobal("wx", {
     navigateBack: vi.fn(),
+    reLaunch: vi.fn(),
     navigateTo: vi.fn()
   });
   await import("../miniprogram/pages/privacy/index");
@@ -83,14 +84,15 @@ describe("privacy consent page", () => {
     expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/plan/index" });
   });
 
-  it("declines by returning without login or navigation into the task flow", async () => {
+  it("declines by reliably returning to anonymous home", async () => {
     const config = await loadPrivacyPage();
     const page = pageInstance(config);
 
     config.decline.call(page);
 
     expect(session.ensureSession).not.toHaveBeenCalled();
-    expect(wx.navigateBack).toHaveBeenCalledWith({ delta: 1 });
+    expect(wx.reLaunch).toHaveBeenCalledWith({ url: "/pages/home/index" });
+    expect(wx.navigateBack).not.toHaveBeenCalled();
     expect(wx.navigateTo).not.toHaveBeenCalled();
   });
 

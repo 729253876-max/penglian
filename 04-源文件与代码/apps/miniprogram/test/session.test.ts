@@ -19,7 +19,7 @@ const firstPair: SessionPair = {
 };
 const refreshedPair: SessionPair = {
   accessToken: "access-second-secret",
-  accessExpiresAt: "2030-08-02T04:00:00.000Z",
+  accessExpiresAt: "2030-08-02T01:30:00.000Z",
   refreshToken: "refresh-second-secret",
   refreshExpiresAt: "2030-09-01T00:00:00.000Z"
 };
@@ -92,12 +92,18 @@ afterEach(() => {
 });
 
 describe("ensureSession", () => {
-  it("reuses a strictly valid unexpired stored session without logging in", async () => {
+  it("records fresh consent even when a strictly valid session is already stored", async () => {
     storage.set(sessionKey, firstPair);
+    requestHandler = (options) => respond(options, 201, refreshedPair);
 
-    await expect(ensureSession(consent)).resolves.toEqual(firstPair);
-    expect(loginCount).toBe(0);
-    expect(requests).toEqual([]);
+    await expect(ensureSession(consent)).resolves.toEqual(refreshedPair);
+    expect(loginCount).toBe(1);
+    expect(requests).toEqual([expect.objectContaining({
+      method: "POST",
+      url: "http://127.0.0.1:3100/v1/identity/wechat",
+      data: expect.objectContaining({ consent })
+    })]);
+    expect(storage.get(sessionKey)).toEqual(refreshedPair);
   });
 
   it("logs in when the stored access token is expired and stores the validated pair", async () => {
@@ -141,6 +147,7 @@ describe("ensureSession", () => {
 
   it.each([
     ["uses an unapproved policy", { policyVersion: "privacy-v1", metadataRemoval: true }],
+    ["declines metadata removal", { policyVersion: "2026-08-02", metadataRemoval: false }],
     ["omits the metadata choice", { policyVersion: "2026-08-02" }],
     ["adds an undeclared field", { policyVersion: "2026-08-02", metadataRemoval: true, tracking: true }],
     ["uses a non-boolean metadata choice", { policyVersion: "2026-08-02", metadataRemoval: "yes" }]
@@ -155,6 +162,14 @@ describe("ensureSession", () => {
     ["misses a token", { ...firstPair, refreshToken: undefined }],
     ["contains an empty token", { ...firstPair, accessToken: "" }],
     ["contains an invalid expiry", { ...firstPair, accessExpiresAt: "tomorrow" }],
+    ["contains an overflow ISO date", { ...firstPair, accessExpiresAt: "2030-02-30T00:30:00.000Z" }],
+    ["grants a four-hour access token", { ...firstPair, accessExpiresAt: "2030-08-02T04:00:00.000Z" }],
+    ["grants refresh beyond thirty days", { ...firstPair, refreshExpiresAt: "2030-09-01T00:00:00.001Z" }],
+    ["expires access after refresh", {
+      ...firstPair,
+      accessExpiresAt: "2030-08-02T01:00:00.000Z",
+      refreshExpiresAt: "2030-08-02T00:30:00.000Z"
+    }],
     ["contains an extra field", { ...firstPair, userId: "not-local-session-data" }]
   ])("does not store a login response that %s", async (_name, invalidPair) => {
     requestHandler = (options) => respond(options, 201, invalidPair);
@@ -224,6 +239,119 @@ describe("authenticatedRequest", () => {
         header: { Authorization: "Bearer access-second-secret" }
       })
     ]);
+    expect(storage.get(sessionKey)).toEqual(refreshedPair);
+  });
+
+  it("proactively refreshes locally expired access before calling the protected API", async () => {
+    storage.set(sessionKey, {
+      ...firstPair,
+      accessExpiresAt: "2030-08-01T23:59:59.000Z"
+    });
+    storage.set(deviceKey, "device-stable-one");
+    requestHandler = (options) => {
+      if (requests.length === 1) return respond(options, 200, refreshedPair);
+      return respond(options, 200, { taskId: "task-1" });
+    };
+
+    await expect(authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    )).resolves.toEqual({ taskId: "task-1" });
+
+    expect(requests.map((request) => request.url)).toEqual([
+      "http://127.0.0.1:3100/v1/sessions/refresh",
+      "http://127.0.0.1:3100/v1/tasks/task-1"
+    ]);
+  });
+
+  it("clears a locally expired refresh session without calling the protected API", async () => {
+    storage.set(sessionKey, {
+      ...firstPair,
+      accessExpiresAt: "2030-08-01T22:00:00.000Z",
+      refreshExpiresAt: "2030-08-01T23:59:59.000Z"
+    });
+
+    await expect(authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    )).rejects.toThrow("SESSION_REQUIRED");
+
+    expect(requests).toEqual([]);
+    expect(storage.has(sessionKey)).toBe(false);
+    expect(wx.reLaunch).toHaveBeenCalledWith({ url: "/pages/privacy/index" });
+  });
+
+  it("single-flights refresh for two concurrent 401 responses", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    let taskCalls = 0;
+    let refreshCalls = 0;
+    let pendingRefresh: WechatMiniprogram.RequestOption | undefined;
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/sessions/refresh")) {
+        refreshCalls += 1;
+        pendingRefresh = options;
+        return;
+      }
+      taskCalls += 1;
+      return respond(options, taskCalls <= 2 ? 401 : 200, { taskId: `task-${taskCalls}` });
+    };
+
+    const requestsInFlight = Promise.all([
+      authenticatedRequest({ method: "GET", url: "/v1/tasks/task-1" }, (value) => value),
+      authenticatedRequest({ method: "GET", url: "/v1/tasks/task-2" }, (value) => value)
+    ]);
+    await Promise.resolve();
+
+    expect(refreshCalls).toBe(1);
+    if (!pendingRefresh) throw new Error("refresh request was not captured");
+    respond(pendingRefresh, 200, refreshedPair);
+    const results = await requestsInFlight;
+
+    expect(results).toEqual([{ taskId: "task-3" }, { taskId: "task-4" }]);
+    expect(requests.slice(-2).map((request) => request.header)).toEqual([
+      { Authorization: "Bearer access-second-secret" },
+      { Authorization: "Bearer access-second-secret" }
+    ]);
+  });
+
+  it("rereads storage after 401 and retries with a newer pair without refreshing", async () => {
+    storage.set(sessionKey, firstPair);
+    requestHandler = (options) => {
+      if (requests.length === 1) {
+        storage.set(sessionKey, refreshedPair);
+        return respond(options, 401, {});
+      }
+      return respond(options, 200, { taskId: "task-1" });
+    };
+
+    await expect(authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    )).resolves.toEqual({ taskId: "task-1" });
+
+    expect(requests).toHaveLength(2);
+    expect(requests.map((request) => request.header)).toEqual([
+      { Authorization: "Bearer access-first-secret" },
+      { Authorization: "Bearer access-second-secret" }
+    ]);
+    expect(requests.some((request) => request.url?.endsWith("/v1/sessions/refresh"))).toBe(false);
+  });
+
+  it("does not clear a newer stored pair when an old refresh fails late", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/tasks/task-1")) return respond(options, 401, {});
+      storage.set(sessionKey, refreshedPair);
+      return respond(options, 401, {});
+    };
+
+    await expect(authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    )).rejects.toThrow("SESSION_EXPIRED");
+
     expect(storage.get(sessionKey)).toEqual(refreshedPair);
   });
 
