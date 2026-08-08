@@ -22,7 +22,24 @@ async function verifyRuntime() {
     '{"type":"module"}\n'
   );
   global.wx = {
+    getStorageSync(key) {
+      if (key !== "photo-ai:session") return undefined;
+      return {
+        accessToken: "runtime-check-access",
+        accessExpiresAt: "2099-01-02T05:04:05.000Z",
+        refreshToken: "runtime-check-refresh",
+        refreshExpiresAt: "2099-02-01T05:04:05.000Z"
+      };
+    },
+    removeStorageSync() {},
+    reLaunch() {
+      throw new Error("runtime verification unexpectedly left the task flow");
+    },
     request(options) {
+      assert.equal(
+        options.header.Authorization,
+        "Bearer runtime-check-access"
+      );
       options.success({
         statusCode: 200,
         data: {

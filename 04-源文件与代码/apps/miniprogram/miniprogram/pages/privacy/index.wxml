@@ -1,0 +1,63 @@
+<view class="privacy-page">
+  <view class="intro">
+    <view class="eyebrow">授权说明 · B1</view>
+    <view class="title">仅在你确认后继续</view>
+    <view class="lead">当前版本只保存你的授权选择并完成微信登录。图片上传、审核和供应商处理将在后续阶段接入；本页确认前不会发生这些操作。</view>
+  </view>
+
+  <view class="facts" aria-label="数据处理说明">
+    <view class="fact">
+      <view class="fact-marker"></view>
+      <view class="fact-copy">
+        <view class="fact-label">处理用途</view>
+        <view class="fact-title">只为创建忠实精修任务</view>
+        <view class="fact-detail">后续上传接入后，照片将用于审核、生成水印预览和交付结果，不用于训练公共模型。</view>
+      </view>
+    </view>
+    <view class="fact">
+      <view class="fact-marker"></view>
+      <view class="fact-copy">
+        <view class="fact-label">活跃数据与备份</view>
+        <view class="fact-title">原图与预览 7 天，付费结果 30 天</view>
+        <view class="fact-detail">主动删除后立即停止访问，活跃数据在 24 小时内清理；备份最长 30 天自然淘汰且不恢复到线上。</view>
+      </view>
+    </view>
+    <view class="fact">
+      <view class="fact-marker"></view>
+      <view class="fact-copy">
+        <view class="fact-label">供应商传输</view>
+        <view class="fact-title">B1 不传图片给供应商</view>
+        <view class="fact-detail">后续只会向通过审查的处理方发送完成任务所需的规范化图片和参数；具体供应商尚未确定。</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="choices">
+    <checkbox-group bindchange="setPrivacyAccepted">
+      <label class="choice-card">
+        <checkbox class="choice-checkbox" value="accepted" checked="{{privacyAccepted}}" color="#6C58C9" />
+        <view class="choice-copy">
+          <view class="choice-title">我已阅读并同意隐私说明</view>
+          <view class="choice-detail">同意按 2026-08-02 版本记录本次选择，并建立本设备会话。</view>
+        </view>
+      </label>
+    </checkbox-group>
+
+    <checkbox-group bindchange="setMetadataRemoval">
+      <label class="choice-card">
+        <checkbox class="choice-checkbox" value="accepted" checked="{{metadataRemoval}}" color="#6C58C9" />
+        <view class="choice-copy">
+          <view class="choice-title">我同意后续上传时清理元数据</view>
+          <view class="choice-detail">后续生成规范化副本时删除 GPS、设备信息和内嵌缩略图；B1 当前不会上传图片。</view>
+        </view>
+      </label>
+    </checkbox-group>
+  </view>
+
+  <view wx:if="{{error}}" class="error" role="alert">{{error}}</view>
+
+  <view class="actions">
+    <button class="button-primary continue" loading="{{submitting}}" disabled="{{!privacyAccepted || !metadataRemoval || submitting}}" bindtap="continueUpload">同意并继续</button>
+    <button class="button-secondary" disabled="{{submitting}}" bindtap="decline">暂不继续</button>
+  </view>
+</view>

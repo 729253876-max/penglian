@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/home/index",
+    "pages/privacy/index",
     "pages/plan/index",
     "pages/live/index",
     "pages/preview/index"

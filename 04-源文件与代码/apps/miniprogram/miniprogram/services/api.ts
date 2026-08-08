@@ -7,8 +7,7 @@ import {
   parseEditTraceEvent,
   parseTaskSnapshot
 } from "./runtime-contracts.js";
-
-const API_BASE = "http://127.0.0.1:3100";
+import { authenticatedRequest } from "./session.js";
 
 type EventPage = {
   items: EditTraceEvent[];
@@ -53,50 +52,26 @@ function parseEventPage(
   };
 }
 
-function request<T>(
-  options: WechatMiniprogram.RequestOption,
-  parse: (value: unknown) => T
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    wx.request({
-      ...options,
-      url: `${API_BASE}${options.url}`,
-      success(response) {
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          try {
-            resolve(parse(response.data));
-          } catch {
-            reject(new Error("API_RESPONSE_INVALID"));
-          }
-          return;
-        }
-        reject(new Error(`API_${response.statusCode}`));
-      },
-      fail: reject
-    });
-  });
-}
-
 function taskPath(taskId: string): string {
   return encodeURIComponent(taskId);
 }
 
 export const createTask = (input: CreateTaskInput) =>
-  request<TaskSnapshot>({
+  authenticatedRequest<TaskSnapshot>({
     method: "POST",
     url: "/v1/tasks",
     data: input
   }, parseTaskSnapshot);
 
 export const runPreview = (taskId: string) =>
-  request<TaskSnapshot>({
+  authenticatedRequest<TaskSnapshot>({
     method: "POST",
     url: `/v1/tasks/${taskPath(taskId)}/preview`,
     data: {}
   }, parseTaskSnapshot);
 
 export const getTask = (taskId: string) =>
-  request<TaskSnapshot>({
+  authenticatedRequest<TaskSnapshot>({
     method: "GET",
     url: `/v1/tasks/${taskPath(taskId)}`
   }, parseTaskSnapshot);
@@ -106,7 +81,7 @@ export const getEvents = (taskId: string, afterSequence: number) => {
     return Promise.reject(new Error("INVALID_AFTER_SEQUENCE"));
   }
 
-  return request<EventPage>({
+  return authenticatedRequest<EventPage>({
     method: "GET",
     url: `/v1/tasks/${taskPath(taskId)}/events?afterSequence=${afterSequence}`
   }, parseEventPage(taskId, afterSequence));

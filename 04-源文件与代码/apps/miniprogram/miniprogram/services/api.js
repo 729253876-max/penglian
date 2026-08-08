@@ -1,5 +1,5 @@
 import { parseEditTraceEvent, parseTaskSnapshot } from "./runtime-contracts.js";
-const API_BASE = "http://127.0.0.1:3100";
+import { authenticatedRequest } from "./session.js";
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -27,41 +27,20 @@ function parseEventPage(expectedTaskId, afterSequence) {
         return { items, nextSequence: value.nextSequence };
     };
 }
-function request(options, parse) {
-    return new Promise((resolve, reject) => {
-        wx.request({
-            ...options,
-            url: `${API_BASE}${options.url}`,
-            success(response) {
-                if (response.statusCode >= 200 && response.statusCode < 300) {
-                    try {
-                        resolve(parse(response.data));
-                    }
-                    catch {
-                        reject(new Error("API_RESPONSE_INVALID"));
-                    }
-                    return;
-                }
-                reject(new Error(`API_${response.statusCode}`));
-            },
-            fail: reject
-        });
-    });
-}
 function taskPath(taskId) {
     return encodeURIComponent(taskId);
 }
-export const createTask = (input) => request({
+export const createTask = (input) => authenticatedRequest({
     method: "POST",
     url: "/v1/tasks",
     data: input
 }, parseTaskSnapshot);
-export const runPreview = (taskId) => request({
+export const runPreview = (taskId) => authenticatedRequest({
     method: "POST",
     url: `/v1/tasks/${taskPath(taskId)}/preview`,
     data: {}
 }, parseTaskSnapshot);
-export const getTask = (taskId) => request({
+export const getTask = (taskId) => authenticatedRequest({
     method: "GET",
     url: `/v1/tasks/${taskPath(taskId)}`
 }, parseTaskSnapshot);
@@ -69,7 +48,7 @@ export const getEvents = (taskId, afterSequence) => {
     if (!isNonNegativeSafeInteger(afterSequence)) {
         return Promise.reject(new Error("INVALID_AFTER_SEQUENCE"));
     }
-    return request({
+    return authenticatedRequest({
         method: "GET",
         url: `/v1/tasks/${taskPath(taskId)}/events?afterSequence=${afterSequence}`
     }, parseEventPage(taskId, afterSequence));

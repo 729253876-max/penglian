@@ -1,0 +1,163 @@
+.privacy-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 44rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  background: #f7f5f0;
+}
+
+.intro {
+  padding: 8rpx 4rpx 36rpx;
+}
+
+.eyebrow,
+.fact-label {
+  color: #6c58c9;
+  font-family: "DIN Alternate", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 21rpx;
+  font-weight: 700;
+  letter-spacing: 1.5rpx;
+}
+
+.title {
+  margin-top: 16rpx;
+  color: #171719;
+  font-size: 50rpx;
+  font-weight: 800;
+  letter-spacing: -1rpx;
+  line-height: 1.16;
+}
+
+.lead {
+  margin-top: 22rpx;
+  color: #77727f;
+  font-size: 26rpx;
+  line-height: 1.72;
+}
+
+.facts {
+  padding: 34rpx 30rpx 12rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 12rpx 36rpx rgba(23, 23, 25, 0.07);
+}
+
+.fact {
+  position: relative;
+  display: flex;
+  gap: 24rpx;
+  min-height: 166rpx;
+}
+
+.fact-marker {
+  position: relative;
+  flex: 0 0 14rpx;
+  width: 14rpx;
+  height: 14rpx;
+  margin-top: 8rpx;
+  border-radius: 50%;
+  background: #6c58c9;
+  box-shadow: 0 0 0 8rpx #eeeaff;
+}
+
+.fact:not(:last-child) .fact-marker::after {
+  position: absolute;
+  top: 22rpx;
+  left: 6rpx;
+  width: 2rpx;
+  height: 130rpx;
+  background: #cfc7f3;
+  content: "";
+}
+
+.fact-copy {
+  flex: 1;
+  padding-bottom: 30rpx;
+}
+
+.fact-title {
+  margin-top: 10rpx;
+  color: #171719;
+  font-size: 29rpx;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.fact-detail {
+  margin-top: 8rpx;
+  color: #77727f;
+  font-size: 24rpx;
+  line-height: 1.62;
+}
+
+.choices {
+  display: grid;
+  gap: 18rpx;
+  margin-top: 24rpx;
+}
+
+.choice-card {
+  display: flex;
+  gap: 22rpx;
+  align-items: flex-start;
+  box-sizing: border-box;
+  min-height: 144rpx;
+  padding: 28rpx;
+  border: 2rpx solid #e8e3dc;
+  border-radius: 22rpx;
+  background: #ffffff;
+}
+
+.choice-checkbox {
+  flex: 0 0 auto;
+  margin-top: 2rpx;
+  transform: scale(0.9);
+  transform-origin: top left;
+}
+
+.choice-copy {
+  flex: 1;
+}
+
+.choice-title {
+  color: #171719;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.choice-detail {
+  margin-top: 8rpx;
+  color: #77727f;
+  font-size: 23rpx;
+  line-height: 1.58;
+}
+
+.error {
+  margin: 20rpx 4rpx 0;
+  color: #a4464c;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.actions {
+  margin-top: 28rpx;
+}
+
+.continue {
+  margin: 0;
+  background: #171719;
+}
+
+.button-secondary {
+  height: 88rpx;
+  margin-top: 14rpx;
+  border: 0;
+  background: transparent;
+  color: #77727f;
+  font-size: 27rpx;
+  line-height: 88rpx;
+}
+
+.button-secondary::after {
+  border: 0;
+}

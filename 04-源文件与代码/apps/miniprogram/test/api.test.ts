@@ -43,6 +43,25 @@ function event(eventId: string, sequence: number): EditTraceEvent {
   };
 }
 
+function installAuthenticatedWx(
+  request: (options: WechatMiniprogram.RequestOption) => void
+) {
+  vi.stubGlobal("wx", {
+    getStorageSync(key: string) {
+      if (key !== "photo-ai:session") return undefined;
+      return {
+        accessToken: "api-test-access",
+        accessExpiresAt: "2030-08-02T02:00:00.000Z",
+        refreshToken: "api-test-refresh",
+        refreshExpiresAt: "2030-09-01T00:00:00.000Z"
+      };
+    },
+    removeStorageSync: vi.fn(),
+    reLaunch: vi.fn(),
+    request
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -50,26 +69,23 @@ afterEach(() => {
 describe("miniprogram API client", () => {
   it("creates a task and returns the validated snapshot", async () => {
     let sent: WechatMiniprogram.RequestOption | undefined;
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        sent = options;
-        options.success?.({ statusCode: 201, data: taskSnapshot });
-      }
+    installAuthenticatedWx((options) => {
+      sent = options;
+      options.success?.({ statusCode: 201, data: taskSnapshot });
     });
 
     await expect(createTask(createInput)).resolves.toEqual(taskSnapshot);
     expect(sent?.method).toBe("POST");
     expect(sent?.url).toBe("http://127.0.0.1:3100/v1/tasks");
     expect(sent?.data).toEqual(createInput);
+    expect(sent?.header).toEqual({ Authorization: "Bearer api-test-access" });
   });
 
   it("sends a JSON body when starting preview generation", async () => {
     let sent: WechatMiniprogram.RequestOption | undefined;
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        sent = options;
-        options.success?.({ statusCode: 202, data: taskSnapshot });
-      }
+    installAuthenticatedWx((options) => {
+      sent = options;
+      options.success?.({ statusCode: 202, data: taskSnapshot });
     });
 
     await expect(runPreview("task-1")).resolves.toEqual(taskSnapshot);
@@ -78,23 +94,19 @@ describe("miniprogram API client", () => {
   });
 
   it("rejects non-success responses without exposing the response body", async () => {
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({
-          statusCode: 503,
-          data: { internalDetail: "not for the client" }
-        });
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({
+        statusCode: 503,
+        data: { internalDetail: "not for the client" }
+      });
     });
 
     await expect(getTask("task-1")).rejects.toThrow("API_503");
   });
 
   it("rejects malformed event pages at the response boundary", async () => {
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({ statusCode: 200, data: { items: [] } });
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({ statusCode: 200, data: { items: [] } });
     });
 
     await expect(getEvents("task-1", 0)).rejects.toThrow("API_RESPONSE_INVALID");
@@ -115,10 +127,8 @@ describe("miniprogram API client", () => {
       nextSequence: 1
     }]
   ])("rejects event pages that %s", async (_name, afterSequence, data) => {
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({ statusCode: 200, data });
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({ statusCode: 200, data });
     });
 
     await expect(getEvents("task-1", afterSequence)).rejects.toThrow("API_RESPONSE_INVALID");
@@ -131,10 +141,8 @@ describe("miniprogram API client", () => {
       nextSequence: 2
     }]
   ])("accepts event pages that %s", async (_name, afterSequence, data) => {
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({ statusCode: 200, data });
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({ statusCode: 200, data });
     });
 
     await expect(getEvents("task-1", afterSequence)).resolves.toEqual(data);
@@ -142,23 +150,19 @@ describe("miniprogram API client", () => {
 
   it("rejects wx request failures with the original error", async () => {
     const networkError = new Error("network unavailable");
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.fail?.(networkError);
-      }
+    installAuthenticatedWx((options) => {
+      options.fail?.(networkError);
     });
 
     await expect(getTask("task-1")).rejects.toBe(networkError);
   });
 
   it("rejects invalid task snapshots at the response boundary", async () => {
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({
-          statusCode: 200,
-          data: { ...taskSnapshot, lastSequence: -1 }
-        });
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({
+        statusCode: 200,
+        data: { ...taskSnapshot, lastSequence: -1 }
+      });
     });
 
     await expect(getTask("task-1")).rejects.toThrow("API_RESPONSE_INVALID");
@@ -167,11 +171,9 @@ describe("miniprogram API client", () => {
   it("encodes task ids before constructing request URLs", async () => {
     let sent: WechatMiniprogram.RequestOption | undefined;
     const taskId = "task /?#% 中文";
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        sent = options;
-        options.success?.({ statusCode: 200, data: taskSnapshot });
-      }
+    installAuthenticatedWx((options) => {
+      sent = options;
+      options.success?.({ statusCode: 200, data: taskSnapshot });
     });
 
     await expect(getTask(taskId)).resolves.toEqual(taskSnapshot);
@@ -186,10 +188,8 @@ describe("miniprogram API client", () => {
     ["infinite", Number.POSITIVE_INFINITY]
   ])("rejects %s event cursors before issuing a request", async (_name, afterSequence) => {
     let requestCount = 0;
-    vi.stubGlobal("wx", {
-      request() {
-        requestCount += 1;
-      }
+    installAuthenticatedWx(() => {
+      requestCount += 1;
     });
 
     await expect(getEvents("task-1", afterSequence)).rejects.toThrow("INVALID_AFTER_SEQUENCE");
@@ -198,11 +198,9 @@ describe("miniprogram API client", () => {
 
   it("settles from the first wx callback", async () => {
     const laterFailure = new Error("late failure");
-    vi.stubGlobal("wx", {
-      request(options: WechatMiniprogram.RequestOption) {
-        options.success?.({ statusCode: 200, data: taskSnapshot });
-        options.fail?.(laterFailure);
-      }
+    installAuthenticatedWx((options) => {
+      options.success?.({ statusCode: 200, data: taskSnapshot });
+      options.fail?.(laterFailure);
     });
 
     await expect(getTask("task-1")).resolves.toEqual(taskSnapshot);
