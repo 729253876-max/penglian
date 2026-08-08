@@ -23,6 +23,18 @@ const refreshedPair: SessionPair = {
   refreshToken: "refresh-second-secret",
   refreshExpiresAt: "2030-09-01T00:00:00.000Z"
 };
+const staleRefreshResult: SessionPair = {
+  accessToken: "access-stale-rotated-secret",
+  accessExpiresAt: "2030-08-02T01:00:00.000Z",
+  refreshToken: "refresh-stale-rotated-secret",
+  refreshExpiresAt: "2030-08-31T00:00:00.000Z"
+};
+const newerRefreshResult: SessionPair = {
+  accessToken: "access-third-secret",
+  accessExpiresAt: "2030-08-02T01:45:00.000Z",
+  refreshToken: "refresh-third-secret",
+  refreshExpiresAt: "2030-08-30T00:00:00.000Z"
+};
 
 type RequestRecord = {
   method?: string;
@@ -353,6 +365,175 @@ describe("authenticatedRequest", () => {
     )).rejects.toThrow("SESSION_EXPIRED");
 
     expect(storage.get(sessionKey)).toEqual(refreshedPair);
+  });
+
+  it("keeps a newly logged-in pair when an older pending refresh succeeds", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    let pendingOldRefresh: WechatMiniprogram.RequestOption | undefined;
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/sessions/refresh")) {
+        pendingOldRefresh = options;
+        return;
+      }
+      if (options.url?.endsWith("/v1/identity/wechat")) {
+        return respond(options, 201, refreshedPair);
+      }
+      if (requests.filter((request) => request.url?.includes("/v1/tasks/")).length === 1) {
+        return respond(options, 401, {});
+      }
+      return respond(options, 200, { taskId: "task-1" });
+    };
+
+    const oldRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    );
+    await Promise.resolve();
+    if (!pendingOldRefresh) throw new Error("old refresh was not captured");
+
+    await ensureSession(consent);
+    respond(pendingOldRefresh, 200, staleRefreshResult);
+
+    await expect(oldRequest).resolves.toEqual({ taskId: "task-1" });
+    expect(storage.get(sessionKey)).toEqual(refreshedPair);
+    expect(requests.at(-1)?.header).toEqual({
+      Authorization: "Bearer access-second-secret"
+    });
+  });
+
+  it("uses a newer stored pair for the single retry when an old refresh fails", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    let pendingOldRefresh: WechatMiniprogram.RequestOption | undefined;
+    let taskCalls = 0;
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/sessions/refresh")) {
+        pendingOldRefresh = options;
+        return;
+      }
+      taskCalls += 1;
+      return respond(options, taskCalls === 1 ? 401 : 200, { taskId: "task-1" });
+    };
+
+    const oldRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-1" },
+      (value) => value
+    );
+    await Promise.resolve();
+    if (!pendingOldRefresh) throw new Error("old refresh was not captured");
+
+    storage.set(sessionKey, refreshedPair);
+    respond(pendingOldRefresh, 401, {});
+
+    await expect(oldRequest).resolves.toEqual({ taskId: "task-1" });
+    expect(storage.get(sessionKey)).toEqual(refreshedPair);
+    expect(requests.at(-1)?.header).toEqual({
+      Authorization: "Bearer access-second-secret"
+    });
+    expect(taskCalls).toBe(2);
+  });
+
+  it("runs independent single flights for different refresh tokens", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    const pendingRefreshes = new Map<string, WechatMiniprogram.RequestOption>();
+    const refreshCounts = new Map<string, number>();
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/sessions/refresh")) {
+        const token = (options.data as { refreshToken: string }).refreshToken;
+        refreshCounts.set(token, (refreshCounts.get(token) ?? 0) + 1);
+        pendingRefreshes.set(token, options);
+        return;
+      }
+      const authorization = (options.header as Record<string, string>).Authorization;
+      if (authorization === "Bearer access-first-secret") {
+        return respond(options, 401, {});
+      }
+      if (
+        options.url?.endsWith("/v1/tasks/task-new") &&
+        authorization === "Bearer access-second-secret"
+      ) {
+        return respond(options, 401, {});
+      }
+      return respond(options, 200, { authorization });
+    };
+
+    const oldRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-old" },
+      (value) => value
+    );
+    await Promise.resolve();
+    storage.set(sessionKey, refreshedPair);
+    const newRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-new" },
+      (value) => value
+    );
+    await Promise.resolve();
+
+    const oldRefresh = pendingRefreshes.get("refresh-first-secret");
+    const newRefresh = pendingRefreshes.get("refresh-second-secret");
+    if (!oldRefresh) throw new Error("old refresh must be captured");
+    respond(oldRefresh, 200, staleRefreshResult);
+    if (newRefresh) respond(newRefresh, 200, newerRefreshResult);
+
+    const results = await Promise.all([oldRequest, newRequest]);
+
+    expect([...refreshCounts.entries()]).toEqual([
+      ["refresh-first-secret", 1],
+      ["refresh-second-secret", 1]
+    ]);
+    expect(results).toEqual([
+      { authorization: "Bearer access-second-secret" },
+      { authorization: "Bearer access-third-secret" }
+    ]);
+    expect(storage.get(sessionKey)).toEqual(newerRefreshResult);
+  });
+
+  it("old flight cleanup does not remove a different pair flight still in progress", async () => {
+    storage.set(sessionKey, firstPair);
+    storage.set(deviceKey, "device-stable-one");
+    const pendingRefreshes = new Map<string, WechatMiniprogram.RequestOption>();
+    const refreshCounts = new Map<string, number>();
+    requestHandler = (options) => {
+      if (options.url?.endsWith("/v1/sessions/refresh")) {
+        const token = (options.data as { refreshToken: string }).refreshToken;
+        refreshCounts.set(token, (refreshCounts.get(token) ?? 0) + 1);
+        pendingRefreshes.set(token, options);
+        return;
+      }
+      return respond(options, 401, {});
+    };
+
+    const oldRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-old" },
+      (value) => value
+    );
+    await Promise.resolve();
+    storage.set(sessionKey, refreshedPair);
+    const firstNewRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-new-1" },
+      (value) => value
+    );
+    await Promise.resolve();
+
+    const oldRefresh = pendingRefreshes.get("refresh-first-secret");
+    if (oldRefresh) respond(oldRefresh, 200, staleRefreshResult);
+    await Promise.resolve();
+
+    const secondNewRequest = authenticatedRequest(
+      { method: "GET", url: "/v1/tasks/task-new-2" },
+      (value) => value
+    );
+    await Promise.resolve();
+
+    for (const [token, pending] of pendingRefreshes) {
+      if (token !== "refresh-first-secret") {
+        respond(pending, 200, newerRefreshResult);
+      }
+    }
+    await Promise.allSettled([oldRequest, firstNewRequest, secondNewRequest]);
+    expect(refreshCounts.get("refresh-second-secret")).toBe(1);
   });
 
   it.each([

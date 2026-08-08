@@ -8,7 +8,12 @@ const PRIVACY_PAGE = "/pages/privacy/index";
 const MAX_ACCESS_LIFETIME_MS = 2 * 60 * 60 * 1000;
 const MAX_REFRESH_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
-let refreshInFlight: Promise<SessionPair> | undefined;
+type RefreshResult = {
+  pair: SessionPair;
+  sourceReplaced: boolean;
+};
+
+const refreshFlights = new Map<string, Promise<RefreshResult>>();
 
 type Response = {
   statusCode: number;
@@ -178,13 +183,25 @@ async function identityRequest(
   return parseSessionPair(response.data);
 }
 
-async function refreshSession(pair: SessionPair): Promise<SessionPair> {
-  const refreshed = await identityRequest("/v1/sessions/refresh", {
-    refreshToken: pair.refreshToken,
-    deviceId: stableDeviceId()
-  });
-  wx.setStorageSync(SESSION_STORAGE_KEY, refreshed);
-  return refreshed;
+async function refreshSession(pair: SessionPair): Promise<RefreshResult> {
+  try {
+    const refreshed = await identityRequest("/v1/sessions/refresh", {
+      refreshToken: pair.refreshToken,
+      deviceId: stableDeviceId()
+    });
+    const current = storedSession();
+    if (current && !samePair(current, pair)) {
+      return { pair: current, sourceReplaced: true };
+    }
+    if (current) wx.setStorageSync(SESSION_STORAGE_KEY, refreshed);
+    return { pair: refreshed, sourceReplaced: false };
+  } catch (error) {
+    const current = storedSession();
+    if (current && !samePair(current, pair)) {
+      return { pair: current, sourceReplaced: true };
+    }
+    throw error;
+  }
 }
 
 function samePair(left: SessionPair, right: SessionPair): boolean {
@@ -194,13 +211,17 @@ function samePair(left: SessionPair, right: SessionPair): boolean {
     left.refreshExpiresAt === right.refreshExpiresAt;
 }
 
-function refreshSingleFlight(pair: SessionPair): Promise<SessionPair> {
-  if (!refreshInFlight) {
-    refreshInFlight = refreshSession(pair).finally(() => {
-      refreshInFlight = undefined;
-    });
-  }
-  return refreshInFlight;
+function refreshSingleFlight(pair: SessionPair): Promise<RefreshResult> {
+  const key = pair.refreshToken;
+  const existing = refreshFlights.get(key);
+  if (existing) return existing;
+
+  let flight: Promise<RefreshResult>;
+  flight = refreshSession(pair).finally(() => {
+    if (refreshFlights.get(key) === flight) refreshFlights.delete(key);
+  });
+  refreshFlights.set(key, flight);
+  return flight;
 }
 
 function returnToPrivacy(
@@ -264,10 +285,13 @@ export async function authenticatedRequest<T>(
 
   let requestPair = current;
   let proactivelyRefreshed = false;
+  let refreshSourceReplaced = false;
   if (Date.parse(current.accessExpiresAt) <= Date.now()) {
     proactivelyRefreshed = true;
     try {
-      requestPair = await refreshSingleFlight(current);
+      const result = await refreshSingleFlight(current);
+      requestPair = result.pair;
+      refreshSourceReplaced = result.sourceReplaced;
     } catch {
       throw returnToPrivacy("SESSION_EXPIRED", current);
     }
@@ -277,7 +301,10 @@ export async function authenticatedRequest<T>(
   if (first.statusCode !== 401) return parseProtectedResponse(first, parse);
 
   if (proactivelyRefreshed) {
-    throw returnToPrivacy("SESSION_EXPIRED", requestPair);
+    throw returnToPrivacy(
+      "SESSION_EXPIRED",
+      refreshSourceReplaced ? current : requestPair
+    );
   }
 
   const latest = storedSession();
@@ -289,16 +316,19 @@ export async function authenticatedRequest<T>(
     return parseProtectedResponse(retryWithLatest, parse);
   }
 
-  let refreshed: SessionPair;
+  let refreshed: RefreshResult;
   try {
     refreshed = await refreshSingleFlight(current);
   } catch {
     throw returnToPrivacy("SESSION_EXPIRED", current);
   }
 
-  const retry = await protectedRequest(options, refreshed.accessToken);
+  const retry = await protectedRequest(options, refreshed.pair.accessToken);
   if (retry.statusCode === 401) {
-    throw returnToPrivacy("SESSION_EXPIRED", refreshed);
+    throw returnToPrivacy(
+      "SESSION_EXPIRED",
+      refreshed.sourceReplaced ? current : refreshed.pair
+    );
   }
   return parseProtectedResponse(retry, parse);
 }
