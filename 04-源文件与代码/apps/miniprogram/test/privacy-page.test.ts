@@ -96,8 +96,11 @@ describe("privacy consent page", () => {
     expect(wx.navigateTo).not.toHaveBeenCalled();
   });
 
-  it("keeps the user on the page with an actionable token-free login error", async () => {
-    session.ensureSession.mockRejectedValueOnce(new Error("access-token-secret"));
+  it.each([
+    [new Error("UNKNOWN_ACCESS_TOKEN_SECRET"), "UNKNOWN_ACCESS_TOKEN_SECRET"],
+    [{ errMsg: "raw-login-secret" }, "raw-login-secret"]
+  ])("uses a safe generic message for unknown failure %#", async (failure, rawValue) => {
+    session.ensureSession.mockRejectedValueOnce(failure);
     const config = await loadPrivacyPage();
     const page = pageInstance(config);
     config.setPrivacyAccepted.call(page, { detail: { value: true } });
@@ -106,8 +109,9 @@ describe("privacy consent page", () => {
     await config.continueUpload.call(page);
 
     expect(page.data.submitting).toBe(false);
-    expect(page.data.error).toContain("重试");
-    expect(page.data.error).not.toContain("access-token-secret");
+    expect(page.data.error).toBe("暂时无法完成登录，请稍后重试。");
+    expect(page.data.error).not.toContain("网络");
+    expect(page.data.error).not.toContain(rawValue);
     expect(wx.navigateTo).not.toHaveBeenCalled();
   });
 

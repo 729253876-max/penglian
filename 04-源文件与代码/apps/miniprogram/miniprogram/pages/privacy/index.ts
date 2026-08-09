@@ -7,10 +7,13 @@ function isChecked(value: unknown): boolean {
 function loginFailureMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : "";
   if (code === "WECHAT_LOGIN_FAILED") return "微信登录未完成，请重试。";
+  if (code === "WECHAT_NETWORK_ERROR") {
+    return "网络连接失败，请检查网络后重试。";
+  }
   if (code.startsWith("API_") || code === "WECHAT_UNAVAILABLE") {
     return "登录服务暂时不可用，请稍后重试。";
   }
-  return "网络连接失败，请检查网络后重试。";
+  return "暂时无法完成登录，请稍后重试。";
 }
 
 Page({

@@ -138,11 +138,17 @@ function apiUrl(path) {
     return `${runtimeConfig.apiBase}${path}`;
 }
 async function identityRequest(path, data) {
-    const response = await rawRequest({
-        method: "POST",
-        url: apiUrl(path),
-        data
-    });
+    let response;
+    try {
+        response = await rawRequest({
+            method: "POST",
+            url: apiUrl(path),
+            data
+        });
+    }
+    catch {
+        throw new Error("WECHAT_NETWORK_ERROR");
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
         throw new Error(`API_${response.statusCode}`);
     }

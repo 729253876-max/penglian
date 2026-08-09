@@ -194,6 +194,32 @@ describe("ensureSession", () => {
     }));
   });
 
+  it("normalizes wx request failures without retaining raw diagnostics", async () => {
+    const rawFailure = {
+      errMsg: "request:fail upstream-secret-message",
+      errno: 600001,
+      exception: { reasons: [], retryCount: 1 },
+      useHttpDNS: false,
+      diagnosticSecret: "upstream-secret-field"
+    } as WechatMiniprogram.RequestFailCallbackErr & {
+      diagnosticSecret: string;
+    };
+    requestHandler = (options) => options.fail?.(rawFailure);
+
+    let rejection: unknown;
+    try {
+      await ensureSession(consent);
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toBe("WECHAT_NETWORK_ERROR");
+    expect(rejection).not.toHaveProperty("errMsg");
+    expect(rejection).not.toHaveProperty("diagnosticSecret");
+    expect(String(rejection)).not.toContain("upstream-secret");
+  });
+
   it("resets a built acceptance runtime to local before real session loads", async () => {
     const temporaryRoot = mkdtempSync(join(tmpdir(), "photo-ai-runtime-sequence-"));
     const scriptsDirectory = join(temporaryRoot, "scripts");

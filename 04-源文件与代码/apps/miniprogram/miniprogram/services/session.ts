@@ -172,11 +172,16 @@ async function identityRequest(
   path: string,
   data: NonNullable<WechatMiniprogram.RequestOption["data"]>
 ): Promise<SessionPair> {
-  const response = await rawRequest({
-    method: "POST",
-    url: apiUrl(path),
-    data
-  });
+  let response: Response;
+  try {
+    response = await rawRequest({
+      method: "POST",
+      url: apiUrl(path),
+      data
+    });
+  } catch {
+    throw new Error("WECHAT_NETWORK_ERROR");
+  }
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`API_${response.statusCode}`);
   }
