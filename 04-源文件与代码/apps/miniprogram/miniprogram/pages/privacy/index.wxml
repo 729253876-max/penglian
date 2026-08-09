@@ -54,7 +54,7 @@
     </checkbox-group>
   </view>
 
-  <view wx:if="{{error}}" class="error" role="alert">{{error}}</view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
 
   <view class="actions">
     <button class="button-primary continue" loading="{{submitting}}" disabled="{{!privacyAccepted || !metadataRemoval || submitting}}" bindtap="continueUpload">同意并继续</button>

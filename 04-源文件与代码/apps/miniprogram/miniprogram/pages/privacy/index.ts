@@ -4,6 +4,15 @@ function isChecked(value: unknown): boolean {
   return value === true || (Array.isArray(value) && value.includes("accepted"));
 }
 
+function loginFailureMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : "";
+  if (code === "WECHAT_LOGIN_FAILED") return "微信登录未完成，请重试。";
+  if (code.startsWith("API_") || code === "WECHAT_UNAVAILABLE") {
+    return "登录服务暂时不可用，请稍后重试。";
+  }
+  return "网络连接失败，请检查网络后重试。";
+}
+
 Page({
   data: {
     privacyAccepted: false,
@@ -41,10 +50,10 @@ Page({
       });
       this.setData({ submitting: false });
       wx.navigateTo({ url: "/pages/plan/index" });
-    } catch {
+    } catch (error) {
       this.setData({
         submitting: false,
-        error: "暂时无法完成登录，请检查网络后重试。"
+        error: loginFailureMessage(error)
       });
     }
   },

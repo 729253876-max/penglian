@@ -110,4 +110,22 @@ describe("privacy consent page", () => {
     expect(page.data.error).not.toContain("access-token-secret");
     expect(wx.navigateTo).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["WECHAT_LOGIN_FAILED", "微信登录未完成"],
+    ["API_503", "登录服务暂时不可用"],
+    ["WECHAT_NETWORK_ERROR", "网络连接失败"]
+  ])("maps %s without leaking the original error", async (code, expected) => {
+    session.ensureSession.mockRejectedValueOnce(new Error(code));
+    const config = await loadPrivacyPage();
+    const page = pageInstance(config);
+    config.setPrivacyAccepted.call(page, { detail: { value: true } });
+    config.setMetadataRemoval.call(page, { detail: { value: true } });
+
+    await config.continueUpload.call(page);
+
+    expect(page.data.error).toContain(expected);
+    expect(page.data.error).not.toContain(code);
+    expect(wx.navigateTo).not.toHaveBeenCalled();
+  });
 });
