@@ -4,6 +4,7 @@ import { buildApp } from "./app.js";
 import { IdentityService } from "./application/identity-service.js";
 import { loadConfig, type ApiConfig } from "./config.js";
 import { MySqlIdentityRepository } from "./infrastructure/mysql-identity-repository.js";
+import { createMySqlReadiness } from "./infrastructure/mysql-readiness.js";
 import { WechatCodeGateway } from "./infrastructure/wechat-code-gateway.js";
 import {
   createMySqlCurrentUserReader,
@@ -31,11 +32,7 @@ export function buildProductionApp(
     currentUserReader: createMySqlCurrentUserReader(
       pool as unknown as CurrentUserDatabase
     ),
-    readiness: {
-      check: async () => {
-        await pool.query("SELECT 1");
-      }
-    }
+    readiness: createMySqlReadiness(pool)
   });
 
   if (ownsPool) {
