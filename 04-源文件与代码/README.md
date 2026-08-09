@@ -16,12 +16,24 @@
 
 ## 安装
 
-阶段 A 环境验收已集成至 `master`。在规范主路径安装依赖：
+阶段 A 环境验收已集成至 `master`。依赖安装按以下顺序处理，避免在受限或国内
+网络环境中把临时下载失败误判为源码问题：
+
+1. 优先复用与 `package-lock.json` 一致、已经验证过的工作区 `node_modules`。
+2. 需要重建依赖时，先使用本机 npm 缓存执行离线安装；缓存不完整时命令会明确
+   失败，不得把失败写成安装成功。
+3. 只有在用户批准联网后，才使用组织允许的源；国内环境可在单次命令中显式指定
+   合规镜像，不把镜像地址或凭据写进仓库配置。
+
+规范主路径下的离线优先命令：
 
 ```powershell
 cd "D:\Documents\workspace\projects\Project-002-修图AI小程序\04-源文件与代码"
-npm.cmd install
+npm.cmd ci --offline
 ```
+
+如果本机缓存不足，应停止并申请联网/镜像授权，不要改写 lockfile，也不要在未批准
+时自动下载依赖。本仓库不得保存 npm token、数据库密码、AppSecret 或其他密钥。
 
 ## 启动本地 API
 
@@ -51,6 +63,70 @@ npm.cmd test -- apps/api/test/http-smoke.test.ts --reporter=verbose
 HTTP 请求覆盖阶段 A 的 `201/202/200/200/422` 主链路；运行前需确保 3100
 没有其他 `LISTENING` 进程。
 
+### B1 MySQL 8 真实集成测试
+
+`apps/api/test/mysql-identity.integration.test.ts` 只接受专用测试数据库，且必须
+同时满足以下两个条件才会建立连接：
+
+- `MYSQL_INTEGRATION_URL` 的协议为 `mysql:`，数据库名必须为
+  `photo_ai_b1_test` 或以 `photo_ai_b1_test_` 开头的安全名称；
+- `MYSQL_INTEGRATION_ALLOW=1` 已显式开启破坏性测试许可。
+
+建议由获授权人员预先创建独立的 MySQL 8 测试库和最低权限测试账号，再只在当前
+PowerShell 会话注入变量。以下值均为占位符，不是可用凭据：
+
+```powershell
+$env:MYSQL_INTEGRATION_URL = "mysql://<test-user>:<password>@127.0.0.1:3306/photo_ai_b1_test"
+$env:MYSQL_INTEGRATION_ALLOW = "1"
+npm.cmd test -- apps/api/test/mysql-identity.integration.test.ts --run --reporter=verbose
+```
+
+测试会执行仓库内真实 `001_identity.sql` 迁移，验证 MySQL 主版本为 8，并串行覆盖
+同 OpenID 并发/重复登录、并发 refresh 单赢家、第六设备淘汰、应用连接池重建后的会话
+持久性与撤销持久性。清理动作仅为在已通过数据库名安全检查后，删除该专用测试库
+内 `sessions`、`consents`、`identity_bindings`、`users` 四张表的数据；测试不会
+创建或删除数据库，也不会输出连接 URL 或密码。
+
+缺少 URL 或安全开关时，测试输出会明确标记 `NOT ACCEPTED` 并显示 skipped，表示
+MySQL 验收未执行，不得记为 B1 通过。URL 无效或数据库名不安全时会在连接、迁移
+或清理前直接拒绝。
+
+正式微信 AppID 和 Android、iOS、HarmonyOS 真机验收是另一道门禁，必须由用户另行
+批准并提供受控环境；不得在仓库中记录 AppSecret，不得用本地编译或测试 double
+代替正式 AppID 登录、refresh、设备淘汰、注销与删除入口验收。HarmonyOS 原生
+微信与 Android 兼容模式必须分别记录，不能合并成同一项 PASS。
+
+### B1 小程序运行配置与构建
+
+运行配置由构建脚本同时生成 TypeScript 与 JavaScript 文件；API origin 是非秘密
+配置，但不得把真实验收或生产 endpoint 硬编码进仓库。以下命令都从本目录运行。
+
+本地模式固定使用开发机 localhost：
+
+```powershell
+npm.cmd run config:local -w @photo-ai/miniprogram
+npm.cmd run build:wechat -w @photo-ai/miniprogram
+```
+
+验收模式允许获批准的手机可访问地址；实际值只由获授权人员在当前进程注入：
+
+```powershell
+$env:PHOTO_AI_APP_MODE = "acceptance"
+# PHOTO_AI_API_BASE 由获授权人员在当前进程安全注入
+npm.cmd run build:wechat:configured -w @photo-ai/miniprogram
+```
+
+生产模式只接受 HTTPS origin，并沿用同一安全注入方式：
+
+```powershell
+$env:PHOTO_AI_APP_MODE = "production"
+# PHOTO_AI_API_BASE 由获授权人员在当前进程安全注入
+npm.cmd run build:wechat:configured -w @photo-ai/miniprogram
+```
+
+`build:wechat` 只运行 TypeScript 编译，不验证 WXML、微信 IDE、preview 或真机行为；
+正式环境证据必须另外在微信开发者工具和三类设备上取得。
+
 ## 打开小程序
 
 在微信开发者工具中导入以下目录：
@@ -59,7 +135,8 @@ HTTP 请求覆盖阶段 A 的 `201/202/200/200/422` 主链路；运行前需确�
 
 这是微信实际运行时工程根。其 `project.config.json` 使用
 `miniprogramRoot: "./"`，并在 `beforeCompile` 中从父目录执行
-`npm --prefix .. run build:wechat`。工程使用 `touristappid` 进行编译验证。
+`npm --prefix .. run build:wechat`。两份工程配置已写入批准的正式 AppID；这只是
+仓库配置事实，不代表正式 AppID 编译、预览、登录或真机验收已经通过。
 导入后先启动本地 API，再从首页进入方案确认页，创建示例任务并查看 AI 精修
 实况和水印预览。
 

@@ -1,10 +1,10 @@
 # Project-002 修图 AI 小程序｜项目记忆与交接文档
 
 > 文档用途：持续记录用户与 Codex 在产品、商业、设计和技术层面的关键结论，供后续提炼、恢复上下文和人员交接使用。  
-> 当前版本：v03.6
+> 当前版本：v03.8
 > 创建日期：2026-07-21  
-> 最近更新：2026-08-02
-> 当前状态：阶段 B0 正式设计规格已获用户书面批准，B1–B4 实施计划已编写；尚未进入业务实现，产品仍不可发布
+> 最近更新：2026-08-09
+> 当前状态：B1-CODE 为 PARTIAL，B1-ENV 为 NOT RUN；B1 尚未集成，产品仍不可发布
 > 项目绝对路径：`D:\Documents\workspace\projects\Project-002-修图AI小程序`
 
 ## 0. 新对话快速接管
@@ -12,86 +12,61 @@
 ### 0.1 当前基线
 
 - 规范项目：`D:\Documents\workspace\projects\Project-002-修图AI小程序`
-- 阶段 A 验收分支：`codex/v1-phase-a-env-acceptance`，已于 2026-07-28
-  纯快进合并至 `master`。
-- 阶段 B0 分支创建基线：`ba54150`；其中阶段 A 环境验收合并基线为
-  `05b8155`，后续提交归档了审美共创候选功能。HANDOFF 集成可能使
-  `master` 继续前进，新对话接管时必须以
-  `git status --short --branch` 和 `git log -1 --oneline` 的实际输出为准。
-- 阶段 A 核心代码提交：`cc187d0`（最终审查问题修复）。
-- 阶段 B0 设计分支：`codex/v1-phase-b-readiness-design`。
-- 阶段 B0 独立 worktree：
-  `D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-phase-b-readiness-design`。
-- 该 worktree 从 `ba54150` 创建；当前设计提交前基线为 `307ffe2`。截至本次交接，
-  仅进行设计规格与交接文档整理，尚未编写阶段 B 业务代码、开通腾讯云服务或
-  产生云资源费用。
-- 当前结论：**阶段 A 的 3100、微信编译、9420、SVG 与开发者工具版本 GUI
-  证据已齐，验收分支已完成提交、复核与纯快进集成，阶段 A 环境验收完成。
-  阶段 B0 正式设计规格已于 2026-08-02 获用户书面批准，B1–B4 分步实施计划
-  已编写并待执行方式确认；尚未编写阶段 B 业务代码，产品仍不可发布。**
-- 阶段 A 当前只开放“AI 智能人像精修”纵向体验；画质增强、路人/杂物消除和
-  老照片修复仅保留共享契约及“阶段 B 接入”的禁用入口。
+- 主工作区：`master@6908ac1`（`docs: plan phase B implementation`）；主工作区
+  `HANDOFF.md` 的 v03.7 未提交修改属于用户输入，本 v03.8 从其完整内容迁移，
+  未反向覆盖主工作区。新线程仍须重新核对实际 Git 输出。
+- B1 分支：`codex/v1-b1-identity-consent`。
+- B1 独立 worktree：
+  `D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-b1-identity-consent`。
+- B1 当前迁移基线 HEAD：`d2a10f3ec65ed2109a966dcc1d29287e93314608`；本文档
+  提交后 HEAD 会前进，接管时以 `git log -1 --oneline` 为准。
+- B1 原实施 Task 1–6 已完成生产代码、自动化验证、逐任务独立审查和提交；双门禁
+  实施 Tasks 1–4 也已完成并提交。
+- `B1-CODE`：当前为 **PARTIAL**。全量 Vitest 为 321 passed，真实 MySQL 6 项
+  skipped；全 workspace typecheck 因未跟踪 MySQL 草稿缺少新必填 TTL 而 exit 2；
+  真实 MySQL 和最终全分支审查未完成。
+- `B1-ENV`：当前为 **NOT RUN**。两份工程配置已写入正式 AppID，但没有正式 AppID
+  的 IDE、preview、受控 API 或 Android、iOS、HarmonyOS 真机证据。
+- 产品仍不可发布；不得把任一仓库侧构建扩大为 WXML、IDE、真机或发布证据。
 
 ### 0.2 已完成与验证证据
 
-- Task 1–9 已完成，不得在新对话中重新派发或重做。
-- 最终全分支审查发现的 C1/C2、I1–I5、M1–M3 已全部修复，并通过限定复审；
-  没有遗留 Critical 或 Important。
-- 规范主工作区重建依赖后，TypeScript 类型检查通过。
-- 新增真实 HTTP 冒烟后，Vitest 共 9 个测试文件、125 项测试通过。
-- `npm.cmd run verify:miniprogram-runtime` 通过，证明小程序 service 不依赖未构建的
-  外部运行时 npm 模块。
-- 2026-07-27 新增 socket 级测试并真实绑定 `127.0.0.1:3100`；五类 HTTP
-  状态与事件末项均通过。
-- 2026-07-27 在当前 `master` 小程序源码上重新编译两次；`compiled: true`，
-  `errors: []`，`wxml_errors: []`。
-- 环境验收分支修复真实 IDE 工程根、WXSS 兼容和空 body POST `415` 后，
-  全量测试为 `10/10` 文件、`129/129` 测试；类型检查、无外部模块验证和
-  8 个微信 JS 构建产物均通过；新增测试会把 TypeScript 编译到临时目录并
-  逐一比对仓库内生成物，防止提交过期 JS。
-- 验收分支通过 `3f801f0`、`90d3c41`、`05b8155` 三次纯快进合并至
-  `master`。后两次提交分别让生成物新鲜度测试忽略等价换行差异，并通过
-  `.gitattributes` 固定微信生成 JS 为 LF，消除 Windows `core.autocrlf=true`
-  引起的误报。
-- 2026-07-28 在最终 `master` `05b8155` 上重新执行类型检查、全量 Vitest、
-  无外部模块运行时验证、微信 JS 构建和生成物新鲜度测试：`10/10` 测试文件、
-  `129/129` 测试与定向 `3/3` 均通过。真实 3100 冒烟前后均无
-  `LISTENING` 残留，`git diff --check` 通过，主工作区保持干净。
-- 2026-07-27 微信 IDE 编译为 `compiled: true`、`errors: []`、
-  `wxml_errors: []`、`automator_verified: true`；2026-07-28 提交前再次编译
-  仍无源码/WXML 错误，但本次 `automator_reconnected: false`，不能据此重写
-  此前 9420 结论。
-- 2026-07-28 在规范 `master` 运行时目录重新执行真实 IDE 编译：
-  `compiled: true`、`errors: []`、`wxml_errors: []`，
-  `Using AppID: touristappid`。编译后的 9420 快速复核为 TCP 已监听但
-  WebSocket 未就绪，两次 `page_data` 均在连接层失败；按重试上限停止。
-  该结果不构成新的交互通过证据，也不覆盖 2026-07-27 已完成的直接运行时证据。
-- 9420 主链路、9 条连续事件重入、失败提示、减少动态效果持久化、水印预览
-  和两张 SVG 模拟器截图均已验证。
-- 2026-07-28 从真实项目窗口打开“微信开发者工具 → 当前版本”，直接 GUI
-  显示 `2.02.2607171 RC win32-x64`；证据截图为
-  `06-复盘与踩坑/阶段A-微信开发者工具-当前版本-20260728.png`。本 RC
-  版本的“关于”菜单项会打开官网概览页，版本弹窗入口实际为“当前版本”。
-  完整项目窗口与“关于 / 当前版本”菜单入口的组合截图为
-  `06-复盘与踩坑/阶段A-微信开发者工具-版本入口-20260728.jpg`。
-- API 仓储为内存态，重启后旧任务不能恢复；本轮没有宣称恢复成功。
+- 原 B1 Task 1：身份与授权契约，提交 `78b833d`。
+- 原 B1 Task 2：MySQL 配置、迁移和事务，提交 `11c9a14`、`edb5b9d`。
+- 原 B1 Task 3：令牌与身份服务，提交 `61200d5`、`6cd46ae`。
+- 原 B1 Task 4：微信网关、路由和认证，提交 `7f5c64c`、`811b9bc`。
+- 原 B1 Task 5：任务用户归属，提交 `8cd5688`。
+- 原 B1 Task 6：小程序隐私授权与会话，提交 `fe8db1f`、`af2d349`、`cc48c18`。
+- 双门禁 Task 1：受控验收会话与 TTL，提交 `31c002e`、`162791b`。
+- 双门禁 Task 2：readiness query timeout，提交 `d0f3f40`、`a16b52e`。
+- 双门禁 Task 3：三模式 API origin 与正式 AppID 配置，提交 `798df49`、
+  `dc8d383`、`c323287`。
+- 双门禁 Task 4：登录错误语义与 `aria-role`，提交 `1f162e4`、`d2a10f3`。
+- 2026-08-09 当前 fresh 自动化：全量 `22 files / 321 tests passed`，另有真实
+  MySQL `1 file / 6 tests skipped`；skipped 不算通过。
+- `npm.cmd run verify:miniprogram-runtime` 与微信 TypeScript build 通过。
+- 全 workspace typecheck 为 exit 2，唯一错误来自未跟踪 MySQL integration 草稿
+  缺少必填 `accessTokenLifetimeMilliseconds`；不得写成全量通过。
+- readiness 的 `1500ms` 仅是 mysql2 query inactivity timeout，不是端到端
+  wall-clock deadline。
+- `aria-role="alert"` 只有代码自审与 reviewer 复核；TypeScript build 不验证 WXML，
+  正式 AppID 微信 IDE 和三系统真机证据仍为 NOT RUN。
 
 ### 0.3 阶段边界与下一步
 
-- 阶段 A 环境验收已完成；不得把这一结论扩大为“产品可发布”。
-- 阶段 B 已完成 B0“架构与合规就绪”正式设计规格并获用户书面批准；B1–B4
-  分步实施计划已写入 `02-方案与设计/实施计划`，当前尚未进入业务实现。后续
-  B1–B4 仍需按独立功能/验收目标继续使用新的
-  `codex/*` 分支与独立 worktree。
-- 真实用户图片、供应商、账户、支付、积分、审核、持久化与发布链路尚未接入。
-- `touristappid` 只证明本地编译和模拟器验收，不证明真实项目身份、真机预览、
-  上传、微信登录、云开发或支付。
-- 正式微信 AppID 已由用户提供：`wx4f7678cc595d276b`。当前仓库两个微信工程
-  配置仍为 `touristappid`；只能在 B1 实施时统一替换并重新编译、预览和真机
-  验证。AppSecret、腾讯云密钥、供应商密钥不得写入仓库或 HANDOFF。
-- 图像处理供应商尚未确定。该状态不阻塞 B0、B1、B2 的设计和可替换接口实现，
-  但阻塞 B3 真实供应商接入、真实质量/费用/延迟验收和生产发布判断。
-- 不得重复执行供应商评测；该工作属于独立专项任务。
+- Task 5 已把既有 README 与 B1 验证记录归一到双门禁文档提交；唯一继续保留的
+  未跟踪草稿是 `apps/api/test/mysql-identity.integration.test.ts`。不得修改、暂存
+  或提交该文件；它留给 Task 6。
+- `B1-CODE` 通过需要：仓库自动化、6 项真实 MySQL 8 测试和最终全分支审查全部
+  通过。应用连接池重建不是 MySQL 实例重启。
+- `B1-ENV` 通过需要：正式 AppID 的 Android、iOS、HarmonyOS 证据全部通过；
+  HarmonyOS 原生微信与 Android 兼容层分开记录，不能互相替代。
+- `B1-ENV` 不阻塞 B1 代码集成，也不阻塞 B2 本地代码、模拟器和契约测试；它仍
+  阻止真实用户身份、真实图片和发布。云资源、费用、扫码、正式登录和外部提交
+  仍需用户另行明确批准。
+- 正式 AppID 已写入两份工程配置，但这不等于正式 AppID 编译、preview 或真机
+  通过。AppSecret、数据库密码、腾讯云密钥和真实 API endpoint 不进入文档或 Git。
+- 图像处理供应商尚未确定；不阻塞 B1–B2 的本地实现，但阻塞 B3 真实供应商接入。
 
 ### 0.4 新对话首条指令
 
@@ -100,28 +75,23 @@
 ```text
 请完整读取
 D:\Documents\workspace\projects\Project-002-修图AI小程序\HANDOFF.md，
-继续 Project-002 修图AI小程序。
+并严格按照“0. 新对话快速接管”继续 Project-002 修图AI小程序。
 
-先进入 Git 仓库根目录
-D:\Documents\workspace\projects\Project-002-修图AI小程序，
-再只读核对 git status --short --branch、git log -1 --oneline、
-06-复盘与踩坑/V1阶段A验证记录-v01-20260726.md 和
-04-源文件与代码/README.md。当前 Task 1–9 与最终审查修复已经完成，
-不要重做；供应商评测属于独立任务，不要重复执行。
+先分别只读核对主工作区和 B1 worktree 的 `git status --short --branch`、
+`git log -1 --oneline`；再读取双门禁设计、实施计划、SDD progress 账本和任务
+报告。已完成的实现与审查不得重做、回滚或重新提交。
 
-阶段 A 环境验收已完成；阶段 B0 分支创建基线为 `ba54150`，当前 `master`
-必须以实际 Git 输出为准。阶段 B0 设计位于
-`codex/v1-phase-b-readiness-design` 和
-`.worktrees/v1-phase-b-readiness-design`。请先核对主工作区及该 worktree
-的 Git 状态和本文档，不要重做 Task 1–9、环境取证或供应商评测。
+B1 worktree 为
+`D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-b1-identity-consent`，
+分支为 `codex/v1-b1-identity-consent`。当前 `B1-CODE` 为 PARTIAL：全量测试
+321 passed、真实 MySQL 6 skipped，全 workspace typecheck 仍被未跟踪 MySQL 草稿
+阻断，真实 MySQL 与最终全分支审查未完成。当前 `B1-ENV` 为 NOT RUN：正式 AppID
+虽已写入两工程，但没有 IDE、preview 或 Android、iOS、HarmonyOS 真机证据。
 
-阶段 B0 架构、组件、数据流、错误恢复和测试验收已经逐节确认，正式规格位于
-`02-方案与设计/阶段B架构与合规就绪设计-v01-20260802.md`，并已于 2026-08-02
-获用户书面批准。B1–B4 计划位于 `02-方案与设计/实施计划`。下一步先让用户在
-Subagent-Driven 与 Inline Execution 中选择执行方式；随后只从 B1 开始，并为其
-创建新的 `codex/*` 分支和独立 worktree。任何真实云开通、费用、登录、密钥或
-外部提交必须另行征求用户同意。供应商未定不得进入 B3 真实接入，也不得宣称
-产品可发布。
+继续 Task 6 前需要用户明确批准 MySQL 8 专用测试库与破坏性测试开关；密码不得
+进入聊天或仓库。B1-ENV 所需正式 AppID、AppSecret 安全注入、受控 API 与三系统
+设备另行申请。HarmonyOS 原生微信和 Android 兼容模式分开记录。任何云资源、费用、
+扫码、正式登录、真实图片或发布动作仍须用户另行明确批准。
 ```
 
 ## 1. 维护规则
@@ -312,7 +282,8 @@ AI 抠图和创意编辑不进入 V1。用户已于 2026-07-21 确认：创意�
 ### 4.13 阶段 B0 已确认架构与合规边界
 
 以下决策由用户于 2026-07-28 至 2026-08-02 逐项确认，并已写入阶段 B 正式设计
-规格草案；规格仍待用户书面审阅，目前尚未授权实施：
+规格 v01；用户已于 2026-08-02 书面批准规格和后续实施计划。B1 已进入实施，
+但截至 2026-08-09 仍停留在双门禁补强与验收，尚未完成 B1 集成：
 
 - 阶段 B 按独立可验收单元拆分，不作为一个大任务一次实施：
   1. B0：架构与合规就绪。
@@ -470,16 +441,17 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 - `02-方案与设计/实施计划/00-V1实施路线图-20260724.md`：将 V1 拆分为六个可独立验收阶段。
 - `02-方案与设计/实施计划/2026-07-24-V1基础与AI精修实况纵向切片实施计划.md`：阶段 A 详细实施计划，先使用模拟供应商打通真实事件流和水印预览。
 - `04-源文件与代码/`：阶段 A 原生小程序、Node.js API、共享契约与自动化
-  验证工程；阶段 A 环境验收已快进合并至 `master`，验收合并基线为
-  `05b8155`。阶段 B0 分支创建基线为 `ba54150`；当前 `master` 以接管时
-  `git log` 为准。
+  验证工程；阶段 A 环境验收已快进合并至 `master`。B1 生产代码位于
+  `codex/v1-b1-identity-consent` 独立 worktree；当前 `master` 与 B1 HEAD 均以
+  接管时实际 Git 输出为准。
 - `04-源文件与代码/README.md`：依赖、启动、类型检查、测试、小程序导入和
-  无外部运行时模块验证方式。
+  无外部运行时模块验证方式，以及 B1 MySQL 与三模式小程序构建说明。
 - `06-复盘与踩坑/V1阶段A验证记录-v01-20260726.md`：阶段 A 的永久验证证据、
   环境阻塞、未完成清单和阶段 B 进入条件。
-- `.worktrees/v1-phase-b-readiness-design/`：阶段 B0 设计独立 worktree；
-  分支为 `codex/v1-phase-b-readiness-design`，不得把其中未提交或未审阅内容
-  描述为已进入 `master`。
+- `06-复盘与踩坑/V1阶段B1验证记录-v01-20260802.md`：B1 双门禁永久验证记录；
+  当前必须保持 `B1-CODE PARTIAL / B1-ENV NOT RUN`。
+- `.worktrees/v1-b1-identity-consent/`：B1 独立 worktree；不得把其未提交内容
+  描述为已进入 B1 提交历史或 `master`。
 
 ### 并行专项任务
 
@@ -494,15 +466,17 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 
 1. 阶段 A 环境验收已完成并集成，不重做 Task 1–9、最终审查修复、供应商评测
    或阶段 A 环境取证。
-2. 用户选择 Subagent-Driven 或 Inline Execution；随后使用
-   `superpowers:using-git-worktrees` 从最新已验收主分支为 B1 创建新的
-   `codex/v1-b1-identity-consent` 分支和独立 worktree。
-3. 严格执行 B1 计划，完成自动化、MySQL 和用户批准后的正式 AppID 验收；B1
-   未验收集成前不开始 B2。后续每阶段继续使用独立 `codex/*` 分支和 worktree。
-4. 供应商未定不阻塞 B1–B2；B3 只能先定义抽象、模拟适配器和契约测试。取得
+2. B1 已完成的实现与双门禁 Tasks 1–4 不重做；先完成本 Task 5 文档归一。
+3. Task 6 在用户明确授权 MySQL 8 专用测试库和破坏性测试开关后，补齐未跟踪
+   integration 草稿的 TTL 参数并实际运行 6 项测试；skipped 不算通过。
+4. MySQL 全部通过后完成 B1 最终全分支审查，判定 `B1-CODE` 是否可集成。
+5. `B1-ENV` 另行取得正式 AppID、受控 API、AppSecret 安全注入与 Android、iOS、
+   HarmonyOS 证据。该门禁不阻塞 B2 本地代码、模拟器和契约测试，但阻止真实用户、
+   真实图片和发布。
+6. 供应商未定不阻塞 B1–B2；B3 只能先定义抽象、模拟适配器和契约测试。取得
    候选供应商、测试权限和删除条款前，不进行真实接入或生产验收。
-5. 腾讯云资源尚未开通；设计获批并得到实施授权前，不创建计费资源。
-6. 审美共创只保留为后期候选，不得插入当前主线。
+7. 腾讯云资源尚未开通；未获得单独授权前，不创建计费资源。
+8. 审美共创只保留为后期候选，不得插入当前主线。
 
 ## 10. API 样片评测基线
 
@@ -567,3 +541,5 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 | 2026-07-29 | v03.4 | 启动阶段 B0 设计收敛并记录用户逐项确认：腾讯云统一托管、上海地域、原图/预览/付费结果保存期限、删除 SLA、按需微信登录、正式 AppID、COS 全私有访问；供应商当前未定但不阻塞 B0–B2 | 仅完成设计输入与交接整理，尚未完成正式规格或阶段 B 实施；不得进入 B3 真实接入或宣称可发布 |
 | 2026-08-02 | v03.5 | 用户确认方案 A 国内部署修订版及架构、组件、数据流、错误恢复和测试验收；冻结上传、元数据授权、审核、会话、多设备、注销与国内无代理构建边界；形成阶段 B0 正式设计规格草案 | 规格完成文档侧自查并待用户书面审阅；尚未授权实施计划、业务代码、云资源或发布 |
 | 2026-08-02 | v03.6 | 用户书面审阅并批准阶段 B0 正式设计规格 v01；使用 `superpowers:writing-plans` 拆分形成阶段索引及 B1–B4 四份详细实施计划，明确 B3 真实供应商和所有外部/费用动作的用户同意门禁 | 实施计划已编写并待执行方式选择；业务代码、云资源和生产发布均未开始 |
+| 2026-08-09 | v03.7 | 更新 B1 实施交接：原 Task 1–6 已完成生产代码、自动化验证、逐任务审查与提交；Task 7 已准备真实 MySQL 集成测试、运行说明和验证记录草稿，并记录正式微信与真机验收所需授权 | Task 7 因缺少获授权的 MySQL 8 专用库、受控凭据注入及 Android/iOS 真机环境保持 `PARTIAL / NOT ACCEPTED`；B1 尚未完成最终审查或集成 |
+| 2026-08-09 | v03.8 | 废弃造成循环依赖的旧单门禁，拆分 `B1-CODE` 与 `B1-ENV`；增加 HarmonyOS 独立证据、三模式 API 配置、应用连接池与 MySQL 实例边界，并迁移双门禁 Tasks 1–4 的真实结果 | `B1-CODE` 为 PARTIAL：321 passed、6 MySQL skipped、全 workspace typecheck exit 2，真实 MySQL与最终审查未完成；`B1-ENV` 为 NOT RUN，正式 AppID 写入工程不等于 IDE/三系统通过 |
