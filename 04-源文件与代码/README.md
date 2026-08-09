@@ -93,8 +93,9 @@ MySQL 验收未执行，不得记为 B1 通过。URL 无效或数据库名不安
 
 正式微信 AppID 和 Android、iOS、HarmonyOS 真机验收是另一道门禁，必须由用户另行
 批准并提供受控环境；不得在仓库中记录 AppSecret，不得用本地编译或测试 double
-代替正式 AppID 登录、refresh、设备淘汰、注销与删除入口验收。HarmonyOS 原生
-微信与 Android 兼容模式必须分别记录，不能合并成同一项 PASS。
+代替正式 AppID 的第二设备登录、当前设备退出、全部设备退出及删除入口验收。
+第六设备淘汰只由 Task 6 的真实 MySQL 套件承担，不需要第六台物理手机。
+HarmonyOS 原生微信与 Android 兼容模式必须分别记录，不能合并成同一项 PASS。
 
 ### B1 小程序运行配置与构建
 

@@ -23,7 +23,7 @@
 - B1 原实施 Task 1–6 已完成生产代码、自动化验证、逐任务独立审查和提交；双门禁
   实施 Tasks 1–4 也已完成并提交。
 - `B1-CODE`：当前为 **PARTIAL**。全量 Vitest 为 321 passed，真实 MySQL 6 项
-  skipped；全 workspace typecheck 因未跟踪 MySQL 草稿缺少新必填 TTL 而 exit 2；
+  skipped；全 workspace typecheck 因未跟踪 MySQL 草稿缺少新必填 TTL 而失败；
   真实 MySQL 和最终全分支审查未完成。
 - `B1-ENV`：当前为 **NOT RUN**。两份工程配置已写入正式 AppID，但没有正式 AppID
   的 IDE、preview、受控 API 或 Android、iOS、HarmonyOS 真机证据。
@@ -45,8 +45,8 @@
 - 2026-08-09 当前 fresh 自动化：全量 `22 files / 321 tests passed`，另有真实
   MySQL `1 file / 6 tests skipped`；skipped 不算通过。
 - `npm.cmd run verify:miniprogram-runtime` 与微信 TypeScript build 通过。
-- 全 workspace typecheck 为 exit 2，唯一错误来自未跟踪 MySQL integration 草稿
-  缺少必填 `accessTokenLifetimeMilliseconds`；不得写成全量通过。
+- 全 workspace typecheck 失败，唯一诊断为未跟踪 MySQL integration 草稿缺少必填
+  `accessTokenLifetimeMilliseconds` 的 `TS2345`；不得写成全量通过。
 - readiness 的 `1500ms` 仅是 mysql2 query inactivity timeout，不是端到端
   wall-clock deadline。
 - `aria-role="alert"` 只有代码自审与 reviewer 复核；TypeScript build 不验证 WXML，
@@ -317,10 +317,10 @@ AI 抠图和创意编辑不进入 V1。用户已于 2026-07-21 确认：创意�
   - 用户首次上传图片时展示隐私说明，确认后再调用 `wx.login` 建立服务端会话。
   - V1 不强制获取头像、昵称或手机号。
   - 上传、任务记录、积分和付费结果绑定平台内部用户 ID。
-- 正式微信 AppID 为 `wx4f7678cc595d276b`。当前两个微信工程配置中的
-  `touristappid` 只用于既有阶段 A 本地验证；B1 实施时必须统一替换，且通过
-  正式项目编译、预览和真机验证。AppSecret 只能通过部署环境的密钥管理注入，
-  不得发送到对话或写入 Git。
+- 正式微信 AppID 为 `wx4f7678cc595d276b`。修订前两个微信工程曾使用
+  `touristappid` 完成阶段 A 本地验证；双门禁 Task 3 已把两份工程配置统一替换为
+  正式 AppID，但尚无正式 AppID 的 IDE 编译、预览或真机证据。AppSecret 只能通过
+  部署环境的密钥管理注入，不得发送到对话或写入 Git。
 - COS 使用全私有访问：
   - 存储桶禁止公开读写，V1 暂不引入 CDN。
   - 服务端只签发短时、用途受限的上传凭证和下载地址。
@@ -542,4 +542,4 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 | 2026-08-02 | v03.5 | 用户确认方案 A 国内部署修订版及架构、组件、数据流、错误恢复和测试验收；冻结上传、元数据授权、审核、会话、多设备、注销与国内无代理构建边界；形成阶段 B0 正式设计规格草案 | 规格完成文档侧自查并待用户书面审阅；尚未授权实施计划、业务代码、云资源或发布 |
 | 2026-08-02 | v03.6 | 用户书面审阅并批准阶段 B0 正式设计规格 v01；使用 `superpowers:writing-plans` 拆分形成阶段索引及 B1–B4 四份详细实施计划，明确 B3 真实供应商和所有外部/费用动作的用户同意门禁 | 实施计划已编写并待执行方式选择；业务代码、云资源和生产发布均未开始 |
 | 2026-08-09 | v03.7 | 更新 B1 实施交接：原 Task 1–6 已完成生产代码、自动化验证、逐任务审查与提交；Task 7 已准备真实 MySQL 集成测试、运行说明和验证记录草稿，并记录正式微信与真机验收所需授权 | Task 7 因缺少获授权的 MySQL 8 专用库、受控凭据注入及 Android/iOS 真机环境保持 `PARTIAL / NOT ACCEPTED`；B1 尚未完成最终审查或集成 |
-| 2026-08-09 | v03.8 | 废弃造成循环依赖的旧单门禁，拆分 `B1-CODE` 与 `B1-ENV`；增加 HarmonyOS 独立证据、三模式 API 配置、应用连接池与 MySQL 实例边界，并迁移双门禁 Tasks 1–4 的真实结果 | `B1-CODE` 为 PARTIAL：321 passed、6 MySQL skipped、全 workspace typecheck exit 2，真实 MySQL与最终审查未完成；`B1-ENV` 为 NOT RUN，正式 AppID 写入工程不等于 IDE/三系统通过 |
+| 2026-08-09 | v03.8 | 废弃造成循环依赖的旧单门禁，拆分 `B1-CODE` 与 `B1-ENV`；增加 HarmonyOS 独立证据、三模式 API 配置、应用连接池与 MySQL 实例边界，并迁移双门禁 Tasks 1–4 的真实结果 | `B1-CODE` 为 PARTIAL：321 passed、6 MySQL skipped、全 workspace typecheck 因唯一 `TS2345` 失败，真实 MySQL 与最终审查未完成；`B1-ENV` 为 NOT RUN，正式 AppID 写入工程不等于 IDE/三系统通过 |
