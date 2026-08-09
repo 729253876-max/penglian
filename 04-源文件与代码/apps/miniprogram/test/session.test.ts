@@ -1,3 +1,14 @@
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConsentInput, SessionPair } from "@photo-ai/contracts";
 import {
@@ -47,6 +58,62 @@ const storage = new Map<string, unknown>();
 let requests: RequestRecord[];
 let loginCount: number;
 let requestHandler: (options: WechatMiniprogram.RequestOption) => void;
+
+function runGenerator(
+  scriptPath: string,
+  command: "--local" | "--from-env",
+  environment: Record<string, string> = {}
+) {
+  const result = spawnSync(process.execPath, [scriptPath, command], {
+    encoding: "utf8",
+    env: { ...process.env, ...environment }
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `runtime generator failed: ${result.error ?? ""}\n${result.stdout}\n${result.stderr}`
+    );
+  }
+}
+
+function requestUrlFromNativeSession(sessionPath: string): string {
+  const sessionUrl = pathToFileURL(sessionPath).href;
+  const script = `
+const now = Date.now();
+const pair = {
+  accessToken: "native-check-access",
+  accessExpiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
+  refreshToken: "native-check-refresh",
+  refreshExpiresAt: new Date(now + 24 * 60 * 60 * 1000).toISOString()
+};
+let requestedUrl;
+globalThis.wx = {
+  getStorageSync() {},
+  setStorageSync() {},
+  removeStorageSync() {},
+  login(options) {
+    options.success({ code: "native-wechat-code", errMsg: "login:ok" });
+  },
+  request(options) {
+    requestedUrl = options.url;
+    options.success({ statusCode: 201, data: pair });
+  }
+};
+const { ensureSession } = await import(${JSON.stringify(sessionUrl)});
+await ensureSession({ policyVersion: "2026-08-02", metadataRemoval: true });
+process.stdout.write(requestedUrl ?? "");
+`;
+  const result = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    script
+  ], { encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(
+      `native session failed: ${result.error ?? ""}\n${result.stdout}\n${result.stderr}`
+    );
+  }
+  return result.stdout.trim();
+}
 
 function installWx() {
   vi.stubGlobal("wx", {
@@ -125,6 +192,51 @@ describe("ensureSession", () => {
     expect(wx.request).toHaveBeenCalledWith(expect.objectContaining({
       url: "http://192.168.1.20:3100/v1/identity/wechat"
     }));
+  });
+
+  it("resets a built acceptance runtime to local before real session loads", async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "photo-ai-runtime-sequence-"));
+    const scriptsDirectory = join(temporaryRoot, "scripts");
+    const miniprogramDirectory = join(temporaryRoot, "miniprogram");
+    const configDirectory = join(miniprogramDirectory, "config");
+    const servicesDirectory = join(miniprogramDirectory, "services");
+    mkdirSync(scriptsDirectory, { recursive: true });
+    mkdirSync(configDirectory, { recursive: true });
+    mkdirSync(servicesDirectory, { recursive: true });
+    const generatorPath = join(scriptsDirectory, "generate-runtime-config.cjs");
+    const sessionPath = join(servicesDirectory, "session.js");
+    copyFileSync(
+      new URL("../scripts/generate-runtime-config.cjs", import.meta.url),
+      generatorPath
+    );
+    copyFileSync(
+      new URL("../miniprogram/services/session.js", import.meta.url),
+      sessionPath
+    );
+    writeFileSync(
+      join(miniprogramDirectory, "package.json"),
+      '{"type":"module"}\n'
+    );
+    writeFileSync(
+      join(configDirectory, "runtime.generated.js"),
+      "export const runtimeConfig = Object.freeze({\n" +
+        '  mode: "acceptance",\n' +
+        '  apiBase: "http://192.168.1.20:3100"\n' +
+        "});\n"
+    );
+    try {
+      runGenerator(generatorPath, "--from-env", {
+        PHOTO_AI_APP_MODE: "acceptance",
+        PHOTO_AI_API_BASE: "http://192.168.1.20:3100"
+      });
+      runGenerator(generatorPath, "--local");
+
+      expect(requestUrlFromNativeSession(sessionPath)).toBe(
+        "http://127.0.0.1:3100/v1/identity/wechat"
+      );
+    } finally {
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
   });
 
   it("records fresh consent even when a strictly valid session is already stored", async () => {
