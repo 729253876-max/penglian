@@ -18,7 +18,8 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const identityConfig = {
   wechatAppId: "wx4f7678cc595d276b",
   identityLookupKey: Buffer.alloc(32, 0x51),
-  identityEncryptionKey: Buffer.alloc(32, 0x52)
+  identityEncryptionKey: Buffer.alloc(32, 0x52),
+  accessTokenLifetimeMilliseconds: 2 * 60 * 60 * 1000
 };
 const consent: ConsentInput = {
   policyVersion: "privacy-v1",
@@ -303,6 +304,22 @@ describe("IdentityService", () => {
     );
     expect(JSON.stringify(repository.state)).not.toContain(pair.accessToken);
     expect(JSON.stringify(repository.state)).not.toContain(pair.refreshToken);
+  });
+
+  it("uses the injected acceptance access lifetime without extending refresh lifetime", async () => {
+    const repository = new FakeIdentityRepository();
+    const clock = new MutableClock(new Date("2030-01-02T03:04:05.000Z"));
+    const service = new IdentityService(repository, {
+      ...identityConfig,
+      accessTokenLifetimeMilliseconds: 60_000
+    }, clock);
+    const now = clock.now();
+
+    const pair = await login(service);
+
+    expect(pair.accessExpiresAt.getTime() - now.getTime()).toBe(60_000);
+    expect(pair.refreshExpiresAt.getTime() - now.getTime())
+      .toBe(30 * 24 * 60 * 60 * 1000);
   });
 
   it("keeps at most five active devices and revokes the least recently used device", async () => {

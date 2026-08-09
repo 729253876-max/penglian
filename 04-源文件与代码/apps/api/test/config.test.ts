@@ -12,6 +12,36 @@ const validProductionEnv = {
 } as const;
 
 describe("loadConfig", () => {
+  it("keeps the two-hour access lifetime outside acceptance mode", () => {
+    expect(loadConfig(validProductionEnv)).toMatchObject({
+      acceptanceMode: false,
+      accessTokenLifetimeMilliseconds: 2 * 60 * 60 * 1000
+    });
+  });
+
+  it("allows a bounded short access lifetime only in non-production acceptance mode", () => {
+    expect(loadConfig({
+      ...validProductionEnv,
+      NODE_ENV: "test",
+      ACCEPTANCE_MODE: "1",
+      ACCEPTANCE_ACCESS_TTL_SECONDS: "60"
+    })).toMatchObject({
+      acceptanceMode: true,
+      host: "0.0.0.0",
+      accessTokenLifetimeMilliseconds: 60_000
+    });
+  });
+
+  it.each([
+    [{ ...validProductionEnv, NODE_ENV: "test", ACCEPTANCE_MODE: "yes" }, "INVALID_ACCEPTANCE_MODE"],
+    [{ ...validProductionEnv, ACCEPTANCE_MODE: "1", ACCEPTANCE_ACCESS_TTL_SECONDS: "60" }, "ACCEPTANCE_MODE_FORBIDDEN_IN_PRODUCTION"],
+    [{ ...validProductionEnv, NODE_ENV: "test", ACCEPTANCE_MODE: "1", ACCEPTANCE_ACCESS_TTL_SECONDS: "29" }, "INVALID_ACCEPTANCE_ACCESS_TTL_SECONDS"],
+    [{ ...validProductionEnv, NODE_ENV: "test", ACCEPTANCE_MODE: "1", ACCEPTANCE_ACCESS_TTL_SECONDS: "601" }, "INVALID_ACCEPTANCE_ACCESS_TTL_SECONDS"],
+    [{ ...validProductionEnv, NODE_ENV: "test", ACCEPTANCE_ACCESS_TTL_SECONDS: "60" }, "ACCEPTANCE_TTL_WITHOUT_MODE"]
+  ])("rejects unsafe acceptance configuration", (env, code) => {
+    expect(() => loadConfig(env)).toThrow(code);
+  });
+
   it("binds a fully configured production API to all interfaces", () => {
     const config = loadConfig(validProductionEnv);
 

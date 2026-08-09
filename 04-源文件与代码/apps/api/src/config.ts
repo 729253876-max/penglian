@@ -1,5 +1,7 @@
 export interface ApiConfig {
   nodeEnv: "development" | "test" | "production";
+  acceptanceMode: boolean;
+  accessTokenLifetimeMilliseconds: number;
   host: string;
   port: number;
   mysqlUrl: string;
@@ -18,6 +20,7 @@ const nodeEnvironments = new Set<ApiConfig["nodeEnv"]>([
 ]);
 const productionWechatAppId = "wx4f7678cc595d276b";
 const keyPattern = /^[a-f0-9]{64}$/i;
+const standardAccessLifetimeMilliseconds = 2 * 60 * 60 * 1000;
 
 function invalid(code: string): never {
   throw new Error(code);
@@ -39,11 +42,42 @@ function loadIdentityKey(env: ConfigEnvironment, name: string): Buffer {
   return Buffer.from(value, "hex");
 }
 
+function acceptanceConfig(
+  env: ConfigEnvironment,
+  nodeEnv: ApiConfig["nodeEnv"]
+): Pick<ApiConfig, "acceptanceMode" | "accessTokenLifetimeMilliseconds"> {
+  const enabled = env.ACCEPTANCE_MODE === "1";
+  if (env.ACCEPTANCE_MODE && !["0", "1"].includes(env.ACCEPTANCE_MODE)) {
+    invalid("INVALID_ACCEPTANCE_MODE");
+  }
+  if (!enabled && env.ACCEPTANCE_ACCESS_TTL_SECONDS) {
+    invalid("ACCEPTANCE_TTL_WITHOUT_MODE");
+  }
+  if (!enabled) {
+    return {
+      acceptanceMode: false,
+      accessTokenLifetimeMilliseconds: standardAccessLifetimeMilliseconds
+    };
+  }
+  if (nodeEnv === "production") {
+    invalid("ACCEPTANCE_MODE_FORBIDDEN_IN_PRODUCTION");
+  }
+  const seconds = Number(required(env, "ACCEPTANCE_ACCESS_TTL_SECONDS"));
+  if (!Number.isInteger(seconds) || seconds < 30 || seconds > 600) {
+    invalid("INVALID_ACCEPTANCE_ACCESS_TTL_SECONDS");
+  }
+  return {
+    acceptanceMode: true,
+    accessTokenLifetimeMilliseconds: seconds * 1000
+  };
+}
+
 export function loadConfig(env: ConfigEnvironment): ApiConfig {
   const nodeEnv = required(env, "NODE_ENV");
   if (!nodeEnvironments.has(nodeEnv as ApiConfig["nodeEnv"])) {
     invalid("INVALID_NODE_ENV");
   }
+  const acceptance = acceptanceConfig(env, nodeEnv as ApiConfig["nodeEnv"]);
 
   const portValue = required(env, "PORT");
   const port = Number(portValue);
@@ -74,7 +108,10 @@ export function loadConfig(env: ConfigEnvironment): ApiConfig {
 
   return {
     nodeEnv: nodeEnv as ApiConfig["nodeEnv"],
-    host: nodeEnv === "production" ? "0.0.0.0" : "127.0.0.1",
+    ...acceptance,
+    host: nodeEnv === "production" || acceptance.acceptanceMode
+      ? "0.0.0.0"
+      : "127.0.0.1",
     port,
     mysqlUrl,
     wechatAppId,
