@@ -1,4 +1,4 @@
-const API_BASE = "http://127.0.0.1:3100";
+import { runtimeConfig } from "../config/runtime.generated.js";
 const SESSION_STORAGE_KEY = "photo-ai:session";
 const DEVICE_STORAGE_KEY = "photo-ai:device-id";
 const APPROVED_POLICY_VERSION = "2026-08-02";
@@ -135,7 +135,7 @@ function rawRequest(options) {
     });
 }
 function apiUrl(path) {
-    return `${API_BASE}${path}`;
+    return `${runtimeConfig.apiBase}${path}`;
 }
 async function identityRequest(path, data) {
     const response = await rawRequest({

@@ -1,6 +1,6 @@
 import type { ConsentInput, SessionPair } from "@photo-ai/contracts";
+import { runtimeConfig } from "../config/runtime.generated.js";
 
-const API_BASE = "http://127.0.0.1:3100";
 const SESSION_STORAGE_KEY = "photo-ai:session";
 const DEVICE_STORAGE_KEY = "photo-ai:device-id";
 const APPROVED_POLICY_VERSION = "2026-08-02";
@@ -165,7 +165,7 @@ function rawRequest(options: WechatMiniprogram.RequestOption): Promise<Response>
 }
 
 function apiUrl(path: string): string {
-  return `${API_BASE}${path}`;
+  return `${runtimeConfig.apiBase}${path}`;
 }
 
 async function identityRequest(

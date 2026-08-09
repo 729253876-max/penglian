@@ -6,6 +6,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 interface ProjectConfig {
+  appid?: string;
   miniprogramRoot?: string;
   setting?: {
     urlCheck?: boolean;
@@ -51,6 +52,7 @@ describe("WeChat project configuration", () => {
     const runtimeProjectConfig = JSON.parse(
       readFileSync(runtimeProjectConfigUrl, "utf8")
     ) as ProjectConfig;
+    expect(runtimeProjectConfig.appid).toBe("wx4f7678cc595d276b");
     expect(runtimeProjectConfig.miniprogramRoot).toBe("./");
     expect(runtimeProjectConfig.scripts?.beforeCompile).toBe(
       "npm --prefix .. run build:wechat"
@@ -89,6 +91,7 @@ describe("WeChat project configuration", () => {
     expect(projectConfig.scripts?.beforeCompile).toBe(
       "npm run build:wechat"
     );
+    expect(projectConfig.appid).toBe("wx4f7678cc595d276b");
     expect(packageConfig.scripts?.["build:wechat"]).toBe(
       "tsc -p tsconfig.wechat.json"
     );

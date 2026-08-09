@@ -63,7 +63,7 @@ function installWx() {
       loginCount += 1;
       options.success?.({ code: "wechat-one-time-code", errMsg: "login:ok" });
     },
-    request(options: WechatMiniprogram.RequestOption) {
+    request: vi.fn((options: WechatMiniprogram.RequestOption) => {
       requests.push({
         method: options.method,
         url: options.url,
@@ -71,7 +71,7 @@ function installWx() {
         header: structuredClone(options.header as Record<string, string> | undefined)
       });
       requestHandler(options);
-    },
+    }),
     reLaunch: vi.fn()
   });
 }
@@ -98,12 +98,35 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock("../miniprogram/config/runtime.generated.js");
+  vi.resetModules();
+  storage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("ensureSession", () => {
+  it("uses the generated acceptance origin for the real identity request", async () => {
+    vi.resetModules();
+    vi.doMock("../miniprogram/config/runtime.generated.js", () => ({
+      runtimeConfig: Object.freeze({
+        mode: "acceptance",
+        apiBase: "http://192.168.1.20:3100"
+      })
+    }));
+    requestHandler = (options) => respond(options, 201, firstPair);
+
+    const acceptanceSession = await import(
+      "../miniprogram/services/session.js"
+    );
+    await acceptanceSession.ensureSession(consent);
+
+    expect(wx.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: "http://192.168.1.20:3100/v1/identity/wechat"
+    }));
+  });
+
   it("records fresh consent even when a strictly valid session is already stored", async () => {
     storage.set(sessionKey, firstPair);
     requestHandler = (options) => respond(options, 201, refreshedPair);

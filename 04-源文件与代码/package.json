@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "pretest": "npm run config:local -w @photo-ai/miniprogram",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present",

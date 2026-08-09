@@ -11,6 +11,6 @@
   "scripts": {
     "beforeCompile": "npm run build:wechat"
   },
-  "appid": "touristappid",
+  "appid": "wx4f7678cc595d276b",
   "projectname": "project-002-photo-ai"
 }
