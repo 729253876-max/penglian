@@ -19,6 +19,17 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps non-production APIs on loopback outside acceptance mode", () => {
+    expect(loadConfig({
+      ...validProductionEnv,
+      NODE_ENV: "test"
+    })).toMatchObject({
+      acceptanceMode: false,
+      accessTokenLifetimeMilliseconds: 2 * 60 * 60 * 1000,
+      host: "127.0.0.1"
+    });
+  });
+
   it("allows a bounded short access lifetime only in non-production acceptance mode", () => {
     expect(loadConfig({
       ...validProductionEnv,
@@ -31,6 +42,24 @@ describe("loadConfig", () => {
       accessTokenLifetimeMilliseconds: 60_000
     });
   });
+
+  it.each([
+    [30, 30_000],
+    [600, 600_000]
+  ])(
+    "allows the inclusive acceptance TTL boundary of %i seconds",
+    (seconds, expectedMilliseconds) => {
+      expect(loadConfig({
+        ...validProductionEnv,
+        NODE_ENV: "test",
+        ACCEPTANCE_MODE: "1",
+        ACCEPTANCE_ACCESS_TTL_SECONDS: String(seconds)
+      })).toMatchObject({
+        acceptanceMode: true,
+        accessTokenLifetimeMilliseconds: expectedMilliseconds
+      });
+    }
+  );
 
   it.each([
     [{ ...validProductionEnv, NODE_ENV: "test", ACCEPTANCE_MODE: "yes" }, "INVALID_ACCEPTANCE_MODE"],

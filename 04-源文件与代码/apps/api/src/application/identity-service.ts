@@ -19,7 +19,6 @@ import {
   type IssuedToken
 } from "../domain/session-token.js";
 
-const standardAccessLifetimeMilliseconds = 2 * 60 * 60 * 1_000;
 const refreshLifetimeMilliseconds = 30 * 24 * 60 * 60 * 1_000;
 
 export interface IdentityUser {
@@ -104,7 +103,8 @@ type IdentityConfig = Pick<
   | "wechatAppId"
   | "identityLookupKey"
   | "identityEncryptionKey"
-> & Partial<Pick<ApiConfig, "accessTokenLifetimeMilliseconds">>;
+  | "accessTokenLifetimeMilliseconds"
+>;
 
 type TokenIssuer = () => IssuedToken;
 type IdGenerator = () => string;
@@ -236,10 +236,7 @@ export class IdentityService {
       output: {
         accessToken: access.raw,
         accessExpiresAt: new Date(
-          now.getTime() + (
-            this.config.accessTokenLifetimeMilliseconds ??
-            standardAccessLifetimeMilliseconds
-          )
+          now.getTime() + this.config.accessTokenLifetimeMilliseconds
         ),
         refreshToken: refresh.raw,
         refreshExpiresAt: refreshExpiresAt
