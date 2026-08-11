@@ -151,6 +151,15 @@ TypeScript 是唯一手写源；`build:wechat` 会生成微信可直接加载的
 工具中执行“构建 npm”。这只说明仓库侧没有外部运行时模块，不等同于微信
 模拟器交互已经通过。
 
+## B1-CODE MySQL 8 验收证据（2026-08-11）
+
+- 临时实例代号：`Project-002-local-mysql8-ec9bd158`（仅本机、专用、受控；不记录连接 URL、地址、端口、账户、密码或库名）。
+- 连接材料只通过 DPAPI 在单个 PowerShell 测试进程中临时注入 `MYSQL_INTEGRATION_URL`，并显式设置 `MYSQL_INTEGRATION_ALLOW=1`；进程 `finally` 删除环境变量、释放 `SecureString` 和清空明文。
+- 聚焦真实 MySQL 8 测试：1 个文件、6/6 通过、0 skipped。覆盖生产迁移幂等、同 OpenID 并发/重复登录、并发 refresh 单一胜者、第六设备淘汰，以及连接池重建后活跃/撤销会话的持久性。
+- 并发登录在首次真实测试中暴露 MySQL deadlock；`withTransaction` 现仅对 `ER_LOCK_DEADLOCK` 且 `errno=1213` 进行最多三次的全事务重试。每次失败均先 rollback/release，再重新获取连接并 begin。单元测试覆盖成功重试、非 deadlock 不重试和耗尽后抛回原错误。
+- fresh 门禁（证据运行时 HEAD：`288597fcc80bfdecd37dcf153fca7d0cd7490c19`）：`npm.cmd run typecheck` 通过；受控环境下 `npm.cmd test -- --run` 为 23 文件、330 测试全部通过（含 MySQL 6/6，0 skipped）；`npm.cmd run verify:miniprogram-runtime`、`npm.cmd run build:wechat -w @photo-ai/miniprogram` 与 `git diff --check` 均通过。
+- 这只是 MySQL/自动化证据。`B1-CODE` 仍为 `PARTIAL / NOT ACCEPTED`，等待 controller 的独立 Task 6 审查、`6908ac1..HEAD` 全分支审查和最终 fresh 重跑；`B1-ENV` 仍为 `NOT RUN / NOT ACCEPTED`。
+
 ## 阶段边界
 
 V1 的产品契约包含四项工具：人像精修、画质增强、路人/杂物消除、老照片修复。

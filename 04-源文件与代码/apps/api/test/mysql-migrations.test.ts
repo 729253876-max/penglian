@@ -204,6 +204,21 @@ class RecordingConnection {
   }
 }
 
+class RecordingPool {
+  public calls = 0;
+
+  public constructor(private readonly connections: RecordingConnection[]) {}
+
+  public async getConnection(): Promise<RecordingConnection> {
+    const connection = this.connections[this.calls];
+    this.calls += 1;
+    if (!connection) {
+      throw new Error("UNEXPECTED_CONNECTION_REQUEST");
+    }
+    return connection;
+  }
+}
+
 describe("001_identity migration", () => {
   it("creates the complete required identity schema once and leaves it unchanged on a second run", () => {
     const mysql = new StrictSchemaRecordingMySql();
@@ -257,5 +272,75 @@ describe("withTransaction", () => {
     ).rejects.toThrow("write failed");
 
     expect(connection.events).toEqual(["begin", "work", "rollback", "release"]);
+  });
+
+  it("retries a deadlocked transaction with a new connection", async () => {
+    const firstConnection = new RecordingConnection();
+    const secondConnection = new RecordingConnection();
+    const pool = new RecordingPool([firstConnection, secondConnection]);
+    const deadlock = Object.assign(new Error("deadlock"), {
+      code: "ER_LOCK_DEADLOCK",
+      errno: 1213
+    });
+    let workAttempts = 0;
+
+    const result = await withTransaction(pool as unknown as TransactionPool, async () => {
+      if (workAttempts++ === 0) {
+        firstConnection.events.push("work");
+        throw deadlock;
+      }
+      secondConnection.events.push("work");
+      return "created-user";
+    });
+
+    expect(result).toBe("created-user");
+    expect(pool.calls).toBe(2);
+    expect(firstConnection.events).toEqual(["begin", "work", "rollback", "release"]);
+    expect(secondConnection.events).toEqual(["begin", "work", "commit", "release"]);
+  });
+
+  it("does not retry a non-deadlock transaction failure", async () => {
+    const connection = new RecordingConnection();
+    const pool = new RecordingPool([connection]);
+    const failure = Object.assign(new Error("write failed"), {
+      code: "ER_LOCK_WAIT_TIMEOUT",
+      errno: 1205
+    });
+
+    await expect(
+      withTransaction(pool as unknown as TransactionPool, async () => {
+        connection.events.push("work");
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+
+    expect(pool.calls).toBe(1);
+    expect(connection.events).toEqual(["begin", "work", "rollback", "release"]);
+  });
+
+  it("rethrows the deadlock after the retry limit", async () => {
+    const connections = [
+      new RecordingConnection(),
+      new RecordingConnection(),
+      new RecordingConnection()
+    ];
+    const pool = new RecordingPool(connections);
+    const deadlock = Object.assign(new Error("deadlock"), {
+      code: "ER_LOCK_DEADLOCK",
+      errno: 1213
+    });
+    let workAttempts = 0;
+
+    await expect(
+      withTransaction(pool as unknown as TransactionPool, async () => {
+        connections[workAttempts++]?.events.push("work");
+        throw deadlock;
+      })
+    ).rejects.toBe(deadlock);
+
+    expect(pool.calls).toBe(3);
+    for (const connection of connections) {
+      expect(connection.events).toEqual(["begin", "work", "rollback", "release"]);
+    }
   });
 });
