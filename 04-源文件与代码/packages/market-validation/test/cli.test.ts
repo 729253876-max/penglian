@@ -33,9 +33,9 @@ function memoryIo(files: Record<string, string>): CliIo & { stderrText: string; 
   };
 }
 
-function inputFiles(manifest: string): Record<string, string> {
+function inputFiles(manifest: string, configText = config): Record<string, string> {
   return {
-    "config.json": config,
+    "config.json": configText,
     "manifest.csv": manifest,
     "scores.csv": [
       "sampleId,identityPass,severeDefect,preferredOverOriginal,preferredOverBenchmark,willingToSave",
@@ -55,6 +55,13 @@ function inputFiles(manifest: string): Record<string, string> {
 }
 
 const args = ["--config", "config.json", "--manifest", "manifest.csv", "--scores", "scores.csv", "--costs", "costs.csv", "--out", "report.md"];
+const validManifest = [
+  "sampleId,tool,identityApplicable",
+  "p-1,PORTRAIT_RETOUCH,true",
+  "q-1,QUALITY_ENHANCE,false",
+  "o-1,OBJECT_REMOVAL,false",
+  "r-1,OLD_PHOTO_RESTORE,false"
+].join("\n");
 
 describe("runCli", () => {
   it("returns 2 for missing arguments", async () => {
@@ -93,5 +100,42 @@ describe("runCli", () => {
     ].join("\n")));
     expect(await runCli(args, io)).toBe(0);
     expect(io.written["report.md"]).toContain("- 判定：GO");
+  });
+
+  it("rejects config that weakens a quality stop line even when samples would otherwise pass", async () => {
+    const weakerConfig = config.replace('"identityPassRate":0.95', '"identityPassRate":0.94');
+    const io = memoryIo(inputFiles(validManifest, weakerConfig));
+
+    expect(await runCli(args, io)).toBe(2);
+    expect(io.stderrText).toContain("INVALID_CONFIG");
+  });
+
+  it("rejects missing threshold fields as invalid input instead of a valid NO_GO", async () => {
+    const missingThreshold = JSON.stringify({
+      minimumSamplesByTool: {
+        PORTRAIT_RETOUCH: 1,
+        QUALITY_ENHANCE: 1,
+        OBJECT_REMOVAL: 1,
+        OLD_PHOTO_RESTORE: 1
+      },
+      thresholds: {
+        identityPassRate: 0.95,
+        severeDefectRate: 0.05,
+        preferredOverOriginalRate: 0.65,
+        preferredOverBenchmarkRate: 0.45
+      }
+    });
+    const io = memoryIo(inputFiles(validManifest, missingThreshold));
+
+    expect(await runCli(args, io)).toBe(2);
+    expect(io.stderrText).toContain("INVALID_CONFIG");
+  });
+
+  it("rejects nested combined credential names through the config whitelist", async () => {
+    const configWithCredential = JSON.stringify({ ...JSON.parse(config), metadata: { apiToken: "not-allowed" } });
+    const io = memoryIo(inputFiles(validManifest, configWithCredential));
+
+    expect(await runCli(args, io)).toBe(2);
+    expect(io.stderrText).toContain("INVALID_CONFIG");
   });
 });

@@ -1,7 +1,7 @@
 import type { EvaluationSample, EvaluationTool } from "./types.js";
 
 const forbiddenFields = new Set([
-  "imagepath", "imageurl", "openid", "phone", "token", "cookie", "secret", "mysqlurl"
+  "imagepath", "imageurl", "openid", "phone", "token", "cookie", "secret", "mysqlurl", "databaseurl"
 ]);
 
 const manifestHeaders = ["sampleId", "tool", "identityApplicable"] as const;
@@ -27,7 +27,8 @@ function requiredValue(row: CsvRow, field: string): string {
 export function assertNoForbiddenFields(value: unknown): void {
   if (value === null || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
-    if (forbiddenFields.has(key.toLowerCase())) throw new Error(`FORBIDDEN_FIELD:${key}`);
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if ([...forbiddenFields].some((field) => normalizedKey.includes(field))) throw new Error(`FORBIDDEN_FIELD:${key}`);
     assertNoForbiddenFields(child);
   }
 }

@@ -1,9 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { mergeEvaluationCsv, assertNoForbiddenFields } from "./csv.js";
-import { evaluateGate } from "./gate.js";
+import { mergeEvaluationCsv } from "./csv.js";
+import { evaluateGate, parseEvaluationConfig } from "./gate.js";
 import { renderMarkdownReport } from "./report.js";
-import type { EvaluationConfig } from "./types.js";
 
 export interface CliIo {
   readText(path: string): Promise<string>;
@@ -32,6 +31,14 @@ function usage(io: CliIo): number {
   return 2;
 }
 
+function parseConfig(text: string) {
+  try {
+    return parseEvaluationConfig(JSON.parse(text));
+  } catch {
+    throw new Error("INVALID_CONFIG");
+  }
+}
+
 export async function runCli(args: string[], io: CliIo): Promise<number> {
   const paths = parseArgs(args);
   if (!paths) return usage(io);
@@ -42,8 +49,7 @@ export async function runCli(args: string[], io: CliIo): Promise<number> {
     const manifest = inputs[1]!;
     const scores = inputs[2]!;
     const costs = inputs[3]!;
-    const config = JSON.parse(configText) as EvaluationConfig;
-    assertNoForbiddenFields(config);
+    const config = parseConfig(configText);
     const report = evaluateGate(config, mergeEvaluationCsv(manifest, scores, costs));
     const output = paths.get("--out");
     if (output === undefined) return usage(io);

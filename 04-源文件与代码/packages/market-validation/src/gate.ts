@@ -13,6 +13,64 @@ const tools: EvaluationTool[] = [
   "OLD_PHOTO_RESTORE"
 ];
 
+const thresholdFloors = {
+  identityPassRate: 0.95,
+  severeDefectRate: 0.05,
+  preferredOverOriginalRate: 0.65,
+  preferredOverBenchmarkRate: 0.45,
+  willingToSaveRate: 0.60
+} as const;
+
+function invalidConfig(): never {
+  throw new Error("INVALID_CONFIG");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function requireExactKeys(value: Record<string, unknown>, expected: readonly string[]): void {
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length || expected.some((key) => !(key in value))) invalidConfig();
+}
+
+function positiveInteger(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) invalidConfig();
+  return value;
+}
+
+function validatedRate(value: unknown, floor: number, direction: ">=" | "<="): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) invalidConfig();
+  if ((direction === ">=" && value < floor) || (direction === "<=" && value > floor)) invalidConfig();
+  return value;
+}
+
+export function parseEvaluationConfig(value: unknown): EvaluationConfig {
+  if (!isRecord(value)) invalidConfig();
+  requireExactKeys(value, ["minimumSamplesByTool", "thresholds"]);
+  const minimumSamplesByTool = value.minimumSamplesByTool;
+  const thresholds = value.thresholds;
+  if (!isRecord(minimumSamplesByTool) || !isRecord(thresholds)) invalidConfig();
+  requireExactKeys(minimumSamplesByTool, tools);
+  requireExactKeys(thresholds, Object.keys(thresholdFloors));
+
+  return {
+    minimumSamplesByTool: {
+      PORTRAIT_RETOUCH: positiveInteger(minimumSamplesByTool.PORTRAIT_RETOUCH),
+      QUALITY_ENHANCE: positiveInteger(minimumSamplesByTool.QUALITY_ENHANCE),
+      OBJECT_REMOVAL: positiveInteger(minimumSamplesByTool.OBJECT_REMOVAL),
+      OLD_PHOTO_RESTORE: positiveInteger(minimumSamplesByTool.OLD_PHOTO_RESTORE)
+    },
+    thresholds: {
+      identityPassRate: validatedRate(thresholds.identityPassRate, thresholdFloors.identityPassRate, ">="),
+      severeDefectRate: validatedRate(thresholds.severeDefectRate, thresholdFloors.severeDefectRate, "<="),
+      preferredOverOriginalRate: validatedRate(thresholds.preferredOverOriginalRate, thresholdFloors.preferredOverOriginalRate, ">="),
+      preferredOverBenchmarkRate: validatedRate(thresholds.preferredOverBenchmarkRate, thresholdFloors.preferredOverBenchmarkRate, ">="),
+      willingToSaveRate: validatedRate(thresholds.willingToSaveRate, thresholdFloors.willingToSaveRate, ">=")
+    }
+  };
+}
+
 const booleanFields = [
   "identityApplicable",
   "identityPass",
@@ -87,6 +145,7 @@ function rate(numerator: number, denominator: number): number {
 }
 
 export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample[]): GateReport {
+  config = parseEvaluationConfig(config);
   validateSamples(samples);
 
   const delivered = samples.filter((sample) => sample.successfulDelivery);

@@ -89,6 +89,6 @@ export function renderMarkdownReport(report: GateReport): string {
     "|---|---:|---:|---|",
     ...gateRows,
     "",
-    "> 本报告只证明输入数据对应的离线门禁结果，不等于产品可发布。"
+    "> B1-ENV 仍为 NOT RUN；本任务不构成真实市场验证，也不等于产品可发布。"
   ].join("\n");
 }

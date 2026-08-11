@@ -38,5 +38,6 @@ describe("renderMarkdownReport", () => {
     expect(markdown.match(/^\| (?:COVERAGE|IDENTITY|SEVERE_DEFECT|ORIGINAL_PREFERENCE|BENCHMARK_PREFERENCE|SAVE_INTENT|CONTRIBUTION_MARGIN) \|/gm))
       .toHaveLength(7);
     expect(markdown).not.toContain('"metrics"');
+    expect(markdown).toContain("> B1-ENV 仍为 NOT RUN；本任务不构成真实市场验证，也不等于产品可发布。");
   });
 });
