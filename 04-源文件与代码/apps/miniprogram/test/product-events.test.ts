@@ -74,4 +74,94 @@ describe("product event recorder", () => {
     }
     expect(received).toEqual([]);
   });
+
+  it("rejects an accessor without evaluating it or reaching the sink", () => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+    let reads = 0;
+    const nested = { label: "OPEN" };
+    const dimensions = {};
+    Object.defineProperty(dimensions, "state", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads < 3 ? "OPEN" : nested;
+      }
+    });
+
+    expect(() =>
+      recorder.record("PREVIEW_DETAILS_TOGGLED", dimensions)
+    ).toThrow("INVALID_PRODUCT_EVENT");
+    expect(reads).toBe(0);
+    expect(received).toEqual([]);
+  });
+
+  it("reads one data descriptor once and rebuilds a stable primitive event", () => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+    const nested = { label: "OPEN" };
+    let propertyReads = 0;
+    let descriptorReads = 0;
+    const dimensions = new Proxy({ state: "OPEN" }, {
+      get(target, property, receiver) {
+        if (property === "state") {
+          propertyReads += 1;
+          return propertyReads < 3 ? "OPEN" : nested;
+        }
+        return Reflect.get(target, property, receiver);
+      },
+      getOwnPropertyDescriptor(target, property) {
+        descriptorReads += 1;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      }
+    });
+
+    recorder.record("PREVIEW_DETAILS_TOGGLED", dimensions as never);
+    nested.label = "POLLUTED";
+
+    expect(received).toEqual([
+      { name: "PREVIEW_DETAILS_TOGGLED", dimensions: { state: "OPEN" } }
+    ]);
+    expect(propertyReads).toBe(0);
+    expect(descriptorReads).toBe(1);
+  });
+
+  it.each([
+    ["a non-enumerable extra key", () => {
+      const dimensions = { mode: "SLIDER" };
+      Object.defineProperty(dimensions, "taskId", {
+        configurable: true,
+        value: "task-1"
+      });
+      return dimensions;
+    }],
+    ["a symbol key", () => ({ mode: "SLIDER", [Symbol("secret")]: "value" })],
+    ["a custom prototype", () => Object.assign(Object.create({ taskId: "task-1" }), { mode: "SLIDER" })],
+    ["a null prototype", () => Object.assign(Object.create(null), { mode: "SLIDER" })]
+  ] as const)("rejects dimensions with %s without reaching the sink", (_label, createDimensions) => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+
+    expect(() =>
+      recorder.record("PREVIEW_COMPARE_USED", createDimensions() as never)
+    ).toThrow("INVALID_PRODUCT_EVENT");
+    expect(received).toEqual([]);
+  });
+
+  it("rejects a non-enumerable approved key and a nested object value", () => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+    const nonEnumerable = {};
+    Object.defineProperty(nonEnumerable, "mode", {
+      value: "SLIDER"
+    });
+
+    expect(() =>
+      recorder.record("PREVIEW_COMPARE_USED", nonEnumerable)
+    ).toThrow("INVALID_PRODUCT_EVENT");
+    expect(() =>
+      recorder.record("PREVIEW_DETAILS_TOGGLED", { state: { label: "OPEN" } } as never)
+    ).toThrow("INVALID_PRODUCT_EVENT");
+    expect(received).toEqual([]);
+  });
 });

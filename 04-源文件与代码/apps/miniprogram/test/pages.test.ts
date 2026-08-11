@@ -575,16 +575,43 @@ describe("preview page", () => {
     });
   });
 
-  it("keeps the last valid comparison when the slider emits an invalid value", async () => {
+  it("accepts only finite number slider values and keeps the last valid comparison otherwise", async () => {
     const config = await loadPage("../miniprogram/pages/preview/index");
     const page = pageInstance(config);
 
     config.setComparison.call(page, { detail: { value: 37 } });
-    for (const value of [undefined, "x", Number.NaN]) {
+    for (const value of [
+      undefined,
+      null,
+      "",
+      "37",
+      "x",
+      false,
+      [],
+      [37],
+      Number.NaN,
+      Number.POSITIVE_INFINITY
+    ]) {
       config.setComparison.call(page, { detail: { value } });
       expect(page.data.comparePercent).toBe(37);
     }
     expect(productEvents.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts finite numeric slider boundaries and clamps finite overflow", async () => {
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+
+    for (const [value, expected] of [
+      [-20, 0],
+      [0, 0],
+      [100, 100],
+      [140, 100]
+    ]) {
+      config.setComparison.call(page, { detail: { value } });
+      expect(page.data.comparePercent).toBe(expected);
+    }
+    expect(productEvents.record).toHaveBeenCalledTimes(4);
   });
 
   it("updates the comparison while the slider is being dragged", async () => {
