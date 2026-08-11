@@ -1014,7 +1014,7 @@ async function runServerImportProbe(): Promise<{
     const timeout = setTimeout(() => {
       child.kill();
       resolve({ timedOut: true, exitCode: null, stdout: stdout.trim() });
-    }, 1_000);
+    }, 5_000);
     child.once("error", (error) => {
       clearTimeout(timeout);
       reject(error);
