@@ -77,6 +77,25 @@ describe("evaluateGate", () => {
     expect(() => evaluateGate(config, [sample("negative", { retryCostYuan: -0.01 })])).toThrow("INVALID_COST");
   });
 
+  it("rejects unknown PII and credential fields", () => {
+    for (const field of ["imageUrl", "openId", "phoneNumber", "token", "cookie", "apiKey", "databaseUrl"]) {
+      expect(() => evaluateGate(config, [{ ...sample(field), [field]: "sensitive" } as EvaluationSample]))
+        .toThrow("UNKNOWN_SAMPLE_FIELD");
+    }
+  });
+
+  it("rejects invalid sample ids and unsupported tools", () => {
+    expect(() => evaluateGate(config, [sample("", { sampleId: "" })])).toThrow("INVALID_SAMPLE_ID");
+    expect(() => evaluateGate(config, [sample("tool", { tool: "UNSUPPORTED_TOOL" as EvaluationSample["tool"] })]))
+      .toThrow("INVALID_TOOL");
+  });
+
+  it("rejects non-finite and negative candidate prices", () => {
+    for (const candidatePriceYuan of [Number.NaN, Number.POSITIVE_INFINITY, -0.01]) {
+      expect(() => evaluateGate(config, [sample("price", { candidatePriceYuan })])).toThrow("INVALID_PRICE");
+    }
+  });
+
   it("uses the specified population for identity and preference rates", () => {
     const report = evaluateGate(config, [
       sample("p-1"),

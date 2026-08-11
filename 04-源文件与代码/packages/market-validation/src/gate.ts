@@ -33,10 +33,32 @@ const costFields = [
   "refundLossYuan"
 ] as const;
 
+const sampleFields = [
+  "sampleId",
+  "tool",
+  ...booleanFields,
+  ...costFields,
+  "candidatePriceYuan"
+] as const;
+
 function validateSamples(samples: EvaluationSample[]): void {
   const sampleIds = new Set<string>();
 
   for (const sample of samples) {
+    for (const field of Object.keys(sample)) {
+      if (!sampleFields.includes(field as typeof sampleFields[number])) {
+        throw new Error("UNKNOWN_SAMPLE_FIELD");
+      }
+    }
+
+    if (typeof sample.sampleId !== "string" || sample.sampleId.trim().length === 0) {
+      throw new Error("INVALID_SAMPLE_ID");
+    }
+
+    if (!tools.includes(sample.tool)) {
+      throw new Error("INVALID_TOOL");
+    }
+
     if (sampleIds.has(sample.sampleId)) {
       throw new Error("DUPLICATE_SAMPLE_ID");
     }
@@ -52,6 +74,10 @@ function validateSamples(samples: EvaluationSample[]): void {
       if (!Number.isFinite(sample[field]) || sample[field] < 0) {
         throw new Error("INVALID_COST");
       }
+    }
+
+    if (!Number.isFinite(sample.candidatePriceYuan) || sample.candidatePriceYuan < 0) {
+      throw new Error("INVALID_PRICE");
     }
   }
 }
