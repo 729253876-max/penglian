@@ -1,1 +1,33 @@
-<view class="page home"><view class="eyebrow">FIDELITY RETOUCH · CONTACT SHEET 01</view><view class="title">让照片更好，还是你</view><view class="subtitle">保留五官、肤质与原图构图的专业精修。</view><view class="hero card"><view class="photo-frame"><image class="hero-image" src="/assets/demo-before.svg" mode="aspectFill"/><view class="edge-mark top">ISO 100 · 50mm · -0.7 EV</view><view class="edge-mark bottom">DEMO PORTRAIT / 001</view></view><view class="hero-copy"><view class="hero-name">AI 智能人像精修</view><view class="muted">自然光影 · 真实肤质 · 身份稳定</view><button class="button-primary" bindtap="openPortrait">使用示例照片体验</button></view></view><view class="tool-grid"><view class="tool-card disabled"><view class="tool-name">画质增强</view><view class="muted">阶段 B 接入</view></view><view class="tool-card disabled"><view class="tool-name">杂物消除</view><view class="muted">阶段 B 接入</view></view><view class="tool-card disabled"><view class="tool-name">老照片修复</view><view class="muted">阶段 B 接入</view></view></view></view>
+<view class="page home">
+  <view class="eyebrow">IMPORTANT PHOTO RESCUE</view>
+  <view class="title" role="heading" aria-level="1">把重要照片，救回你想留下的那一刻</view>
+  <view class="subtitle">先从一张旅行人像开始：保留五官、肤质与原图构图，只修复光线带来的遗憾。</view>
+
+  <view class="hero card">
+    <view class="photo-frame">
+      <image class="hero-image" src="/assets/demo-before.svg" mode="aspectFill" aria-label="示例旅行人像原图"/>
+      <view class="edge-mark top">DEMO · BEFORE</view>
+      <view class="edge-mark bottom">示例照片 / 旅行人像</view>
+    </view>
+    <view class="hero-copy">
+      <view class="hero-name">旅行人像救片示例</view>
+      <view class="muted">脸暗、逆光或肤色不自然，也能保留真实的你。</view>
+      <button class="button-primary" bindtap="startPortraitDemo">使用示例体验救片</button>
+      <button class="button-secondary" bindtap="openDemoCase">先看同图示例</button>
+    </view>
+  </view>
+
+  <view class="scenario-heading" role="heading" aria-level="2">你想救回哪种遗憾？</view>
+  <view class="scenario-grid">
+    <block wx:for="{{scenarios}}" wx:key="id">
+      <view wx:if="{{item.availableInDemo}}" class="scenario-card">
+        <view class="tool-name">{{item.title}}</view>
+        <view class="muted">{{item.problem}} · 已提供示例体验</view>
+      </view>
+      <view wx:else class="scenario-card disabled" aria-disabled="true">
+        <view class="tool-name">{{item.title}}</view>
+        <view class="muted">{{item.problem}}</view>
+      </view>
+    </block>
+  </view>
+</view>

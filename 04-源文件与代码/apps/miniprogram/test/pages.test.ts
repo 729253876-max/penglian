@@ -155,6 +155,16 @@ describe("plan page", () => {
   });
 });
 
+describe("home page", () => {
+  it("routes the primary rescue action and demo evidence separately", async () => {
+    const config = await loadPage("../miniprogram/pages/home/index");
+    config.startPortraitDemo();
+    expect(wx.navigateTo).toHaveBeenLastCalledWith({ url: "/pages/plan/index?scenario=travel-portrait" });
+    config.openDemoCase();
+    expect(wx.navigateTo).toHaveBeenLastCalledWith({ url: "/pages/cases/index" });
+  });
+});
+
 describe("live page", () => {
   it("shows an actionable error instead of starting a task without taskId", async () => {
     const config = await loadPage("../miniprogram/pages/live/index");
