@@ -1,0 +1,16 @@
+{
+  "minimumSamplesByTool": {
+    "PORTRAIT_RETOUCH": 40,
+    "QUALITY_ENHANCE": 20,
+    "OBJECT_REMOVAL": 20,
+    "OLD_PHOTO_RESTORE": 20
+  },
+  "thresholds": {
+    "identityPassRate": 0.95,
+    "severeDefectRate": 0.05,
+    "preferredOverOriginalRate": 0.65,
+    "preferredOverBenchmarkRate": 0.45,
+    "willingToSaveRate": 0.6
+  }
+}
+
