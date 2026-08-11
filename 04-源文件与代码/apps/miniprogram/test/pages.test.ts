@@ -177,6 +177,43 @@ describe("cases page", () => {
 });
 
 describe("live page", () => {
+  it("keeps detailed real events collapsed until the user expands them", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1",
+      status: "SUCCEEDED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 2,
+      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
+    });
+    api.getEvents.mockResolvedValueOnce({
+      items: [event("one", 1), event("ready", 2, "PREVIEW_READY")],
+      nextSequence: 2
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(page.data.showAllEvents).toBe(false);
+    expect(page.data.latestEvent).toMatchObject({
+      eventId: "ready",
+      type: "PREVIEW_READY"
+    });
+    expect(page.data.traceSummary.map((item: { phase: string }) => item.phase)).toEqual([
+      "RETOUCH",
+      "DELIVERY"
+    ]);
+
+    config.toggleAllEvents.call(page);
+    expect(page.data.showAllEvents).toBe(true);
+    expect(page.data.visibleEvents).toHaveLength(2);
+  });
+
   it("shows an actionable error instead of starting a task without taskId", async () => {
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);

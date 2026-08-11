@@ -1,1 +1,36 @@
-<view class="page live"><view class="live-label">AI RETOUCH · LIVE EVIDENCE</view><view class="live-title">{{failed ? '本次任务未完成' : '正在认真处理这张照片'}}</view><view class="muted">以下记录来自真实任务事件；不展示或伪造模型隐藏推理。</view><view class="motion-setting card"><view><view class="motion-title">减少动态效果</view><view class="muted">开启后，已返回的处理记录会立即完整显示。</view></view><switch checked="{{reduceMotion}}" color="#6C58C9" bindchange="toggleReduceMotion" aria-label="减少动态效果" /></view><view class="stream"><view wx:for="{{visibleEvents}}" wx:key="eventId" class="event-row"><view class="track"><view class="track-dot"></view><view class="track-line"></view></view><view class="event-copy"><view class="event-meta">SEQ {{item.sequence}} · {{item.phase}}</view><view>{{item.text}}</view></view></view></view><view wx:if="{{!ready && !failed && !error}}" class="working"><view class="pulse"></view><text>正在等待服务器返回下一条处理记录，离开页面后任务仍会继续。</text></view><view wx:if="{{failed}}" class="failure card"><view class="failure-title">{{failureMessage}}</view><view class="failure-code">失败代码：{{failureCode}}</view><view class="muted">{{noChargeNote}}</view><view class="failure-actions"><button class="retry" bindtap="restart">重新创建任务</button><button class="secondary" bindtap="goBack">返回上一页</button></view></view><view wx:if="{{error && !failed}}" class="error card"><view>{{error}}</view><button class="retry" bindtap="retry">重新获取进度</button></view><button wx:if="{{ready && !failed}}" class="button-primary" bindtap="openPreview">查看水印预览</button></view>
+<view class="page live">
+  <view class="live-label">AI RETOUCH · LIVE EVIDENCE</view>
+  <view class="live-title">{{failed ? '本次任务未完成' : '正在认真处理这张照片'}}</view>
+  <view class="muted">以下记录来自真实任务事件；不展示或伪造模型隐藏推理。</view>
+
+  <view wx:if="{{traceSummary.length}}" class="trace-summary card">
+    <view class="summary-title">处理摘要</view>
+    <view wx:for="{{traceSummary}}" wx:key="phase" class="summary-row">
+      <text>{{item.phase}}</text>
+      <text class="summary-status">{{item.status}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{latestEvent && !showAllEvents}}" class="latest-event card">
+    <view class="summary-title">最新真实记录</view>
+    <view class="event-meta">SEQ {{latestEvent.sequence}} · {{latestEvent.phase}}</view>
+    <view>{{latestEvent.text}}</view>
+  </view>
+
+  <view wx:if="{{visibleEvents.length > 1}}" class="trace-toggle-wrap">
+    <button class="trace-toggle" bindtap="toggleAllEvents">{{showAllEvents ? '收起完整处理记录' : '查看完整处理记录'}}</button>
+  </view>
+
+  <view wx:if="{{showAllEvents}}" class="stream">
+    <view wx:for="{{visibleEvents}}" wx:key="eventId" class="event-row">
+      <view class="track"><view class="track-dot"></view><view class="track-line"></view></view>
+      <view class="event-copy"><view class="event-meta">SEQ {{item.sequence}} · {{item.phase}}</view><view>{{item.text}}</view></view>
+    </view>
+  </view>
+
+  <view class="motion-setting card"><view><view class="motion-title">减少动态效果</view><view class="muted">开启后，已返回的处理记录会立即完整显示。</view></view><switch checked="{{reduceMotion}}" color="#6C58C9" bindchange="toggleReduceMotion" aria-label="减少动态效果" /></view>
+  <view wx:if="{{!ready && !failed && !error}}" class="working"><view class="pulse"></view><text>正在等待服务器返回下一条处理记录，离开页面后任务仍会继续。</text></view>
+  <view wx:if="{{failed}}" class="failure card"><view class="failure-title">{{failureMessage}}</view><view class="failure-code">失败代码：{{failureCode}}</view><view class="muted">{{noChargeNote}}</view><view class="failure-actions"><button class="retry" bindtap="restart">重新创建任务</button><button class="secondary" bindtap="goBack">返回上一页</button></view></view>
+  <view wx:if="{{error && !failed}}" class="error card"><view>{{error}}</view><button class="retry" bindtap="retry">重新获取进度</button></view>
+  <button wx:if="{{ready && !failed}}" class="button-primary" bindtap="openPreview">查看水印预览</button>
+</view>

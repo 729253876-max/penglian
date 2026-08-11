@@ -9,6 +9,10 @@ import {
   runPreview
 } from "../../services/api";
 import { mergeEvents } from "../../services/edit-trace";
+import {
+  summarizeTrace,
+  type TraceSummary
+} from "../../services/edit-trace-presentation";
 
 type RenderEvent = EditTraceEvent & { text: string };
 
@@ -105,6 +109,9 @@ Page({
     status: "" as TaskStatus | "",
     allEvents: [] as EditTraceEvent[],
     visibleEvents: [] as RenderEvent[],
+    traceSummary: [] as TraceSummary[],
+    latestEvent: undefined as RenderEvent | undefined,
+    showAllEvents: false,
     lastSequence: 0,
     ready: false,
     failed: false,
@@ -147,6 +154,9 @@ Page({
       status: "",
       allEvents: [],
       visibleEvents: [],
+      traceSummary: [],
+      latestEvent: undefined,
+      showAllEvents: false,
       lastSequence: 0,
       ready: false,
       failed: false,
@@ -293,6 +303,10 @@ Page({
     const allEvents = mergeEvents(this.data.allEvents, incoming);
     this.setData({
       allEvents,
+      traceSummary: summarizeTrace(allEvents),
+      latestEvent: allEvents.length > 0
+        ? renderEvent(allEvents[allEvents.length - 1]!)
+        : undefined,
       lastSequence: nextSequence
     });
 
@@ -456,6 +470,10 @@ Page({
     if (reduceMotion) {
       this.flushPendingEvents();
     }
+  },
+
+  toggleAllEvents() {
+    this.setData({ showAllEvents: !this.data.showAllEvents });
   },
 
   markFailed(failureCode: string) {
