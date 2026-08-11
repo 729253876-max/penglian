@@ -26,6 +26,7 @@ interface PackageConfig {
 
 const expectedRuntimeFiles = [
   "app.js",
+  "pages/cases/index.js",
   "pages/home/index.js",
   "pages/live/index.js",
   "pages/plan/index.js",
@@ -71,6 +72,14 @@ describe("WeChat project configuration", () => {
       readFileSync(privateConfigUrl, "utf8")
     ) as ProjectConfig;
     expect(privateConfig.setting?.urlCheck).toBe(false);
+  });
+
+  it("registers the clearly labeled demo comparison page", () => {
+    const appConfig = JSON.parse(
+      readFileSync(new URL("../miniprogram/app.json", import.meta.url), "utf8")
+    ) as AppConfig;
+
+    expect(appConfig.pages).toContain("pages/cases/index");
   });
 
   it("keeps the checked-in JavaScript runtime synchronized with TypeScript", () => {

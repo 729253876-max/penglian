@@ -1,0 +1,34 @@
+<view class="page cases-page">
+  <view class="eyebrow">SAME PHOTO · DEMO</view>
+  <view class="title" role="heading" aria-level="1">同图示例，只看该修复什么</view>
+  <view class="evidence-label" role="note">{{evidenceLabel}}</view>
+  <view class="lead">这是产品示例，用同一张旅行人像说明忠实精修的方向，而不是承诺真实处理结果。</view>
+
+  <view class="comparison" aria-label="示例旅行人像修复前后对比">
+    <view class="image-card">
+      <image class="comparison-image" src="/assets/demo-before.svg" mode="aspectFill" aria-label="示例旅行人像原图，面部暗部较重" />
+      <view class="image-label">原图 · 示例</view>
+    </view>
+    <view class="image-card">
+      <image class="comparison-image" src="/assets/demo-after.svg" mode="aspectFill" aria-label="示例旅行人像精修效果，面部暗部和肤质层次得到恢复" />
+      <view class="image-label accent-label">精修方向 · 示例</view>
+    </view>
+  </view>
+
+  <view class="guidance card" aria-label="示例说明">
+    <view class="guidance-item">
+      <view class="guidance-kicker">改善目标</view>
+      <view class="guidance-copy">恢复面部暗部和肤质层次。</view>
+    </view>
+    <view class="guidance-item">
+      <view class="guidance-kicker">刻意不做</view>
+      <view class="guidance-copy">不改变五官、姿势和构图。</view>
+    </view>
+    <view class="guidance-item last-item">
+      <view class="guidance-kicker">素材说明</view>
+      <view class="guidance-copy">此资产为产品示例，不代表真实用户案例或真实供应商质量。</view>
+    </view>
+  </view>
+
+  <button class="button-primary start-button" bindtap="startDemo">用示例体验人像救片</button>
+</view>

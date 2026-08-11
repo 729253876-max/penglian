@@ -1,0 +1,15 @@
+.cases-page { padding-top: 64rpx; padding-bottom: calc(48rpx + env(safe-area-inset-bottom)); }
+.eyebrow, .guidance-kicker { color: #6c58c9; font-family: "DIN Alternate", sans-serif; font-size: 21rpx; font-weight: 700; letter-spacing: 1rpx; }
+.title { margin-top: 12rpx; font-size: 52rpx; font-weight: 800; letter-spacing: -2rpx; line-height: 1.18; }
+.evidence-label { display: inline-block; margin-top: 22rpx; padding: 10rpx 18rpx; border-radius: 999rpx; color: #51427e; background: #eeeaff; font-size: 23rpx; font-weight: 700; line-height: 1.4; }
+.lead { margin-top: 18rpx; color: #716d76; font-size: 27rpx; line-height: 1.65; }
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16rpx; margin-top: 32rpx; }
+.image-card { position: relative; overflow: hidden; border-radius: 22rpx; background: #ddd3cc; }
+.comparison-image { display: block; width: 100%; height: 420rpx; }
+.image-label { position: absolute; right: 14rpx; bottom: 14rpx; left: 14rpx; padding: 10rpx 12rpx; border-radius: 14rpx; color: #fff; background: rgba(23, 23, 25, .62); font-family: "DIN Alternate", sans-serif; font-size: 20rpx; font-weight: 700; letter-spacing: .5rpx; text-align: center; }
+.accent-label { background: rgba(108, 88, 201, .88); }
+.guidance { margin-top: 24rpx; padding: 0 28rpx; }
+.guidance-item { padding: 26rpx 0; border-bottom: 1rpx solid #ece8e2; }
+.guidance-item.last-item { border-bottom: 0; }
+.guidance-copy { margin-top: 8rpx; color: #4e4953; font-size: 26rpx; line-height: 1.6; }
+.start-button { margin-top: 28rpx; }

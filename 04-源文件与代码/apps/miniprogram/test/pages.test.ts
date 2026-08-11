@@ -165,6 +165,16 @@ describe("home page", () => {
   });
 });
 
+describe("cases page", () => {
+  it("labels the comparison as a demo and enters the same portrait flow", async () => {
+    const config = await loadPage("../miniprogram/pages/cases/index");
+
+    expect(config.data?.evidenceLabel).toBe("示例流程 / 非真实用户案例");
+    config.startDemo();
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/plan/index?scenario=travel-portrait" });
+  });
+});
+
 describe("live page", () => {
   it("shows an actionable error instead of starting a task without taskId", async () => {
     const config = await loadPage("../miniprogram/pages/live/index");
