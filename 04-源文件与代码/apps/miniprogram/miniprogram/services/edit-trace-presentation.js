@@ -14,6 +14,7 @@ export function summarizeTrace(events) {
     const summaries = [...byPhase.values()].map((phaseEvents) => {
         const orderedEvents = [...phaseEvents].sort((left, right) => left.sequence - right.sequence);
         const latestEvent = orderedEvents[orderedEvents.length - 1];
+        const hasLaterPhase = events.some((event) => event.sequence > latestEvent.sequence && event.phase !== latestEvent.phase);
         return {
             firstSequence: orderedEvents[0].sequence,
             phase: latestEvent.phase,
@@ -21,7 +22,7 @@ export function summarizeTrace(events) {
             sourceEventIds: orderedEvents.map((event) => event.eventId),
             status: orderedEvents.some((event) => event.type === "TASK_FAILED")
                 ? "FAILED"
-                : completedEventTypes.has(latestEvent.type)
+                : completedEventTypes.has(latestEvent.type) || hasLaterPhase
                     ? "COMPLETED"
                     : "ACTIVE"
         };
