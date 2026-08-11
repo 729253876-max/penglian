@@ -4,14 +4,14 @@ export const WechatLoginInputSchema = z.object({
   code: z.string().min(1).max(128),
   deviceId: z.string().min(1).max(128),
   consent: z.object({
-    policyVersion: z.string().min(1).max(64),
-    metadataRemoval: z.boolean()
+    policyVersion: z.literal("2026-08-02"),
+    metadataRemoval: z.literal(true)
   }).strict()
 }).strict();
 
 export const ConsentInputSchema = z.object({
-  policyVersion: z.string().min(1).max(64),
-  metadataRemoval: z.boolean()
+  policyVersion: z.literal("2026-08-02"),
+  metadataRemoval: z.literal(true)
 }).strict();
 
 export const RefreshInputSchema = z.object({

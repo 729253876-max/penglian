@@ -20,6 +20,7 @@ import {
 } from "../domain/session-token.js";
 
 const refreshLifetimeMilliseconds = 30 * 24 * 60 * 60 * 1_000;
+const approvedConsentPolicyVersion = "2026-08-02";
 
 export interface IdentityUser {
   id: string;
@@ -119,6 +120,12 @@ export class IdentityService {
   ) {}
 
   public async login(input: VerifiedWechatLoginInput): Promise<ApplicationSessionPair> {
+    if (
+      input.consent.metadataRemoval !== true ||
+      input.consent.policyVersion !== approvedConsentPolicyVersion
+    ) {
+      throw new Error("CONSENT_REQUIRED");
+    }
     const now = this.clock.now();
     const identity = protectOpenId(
       input.openId,

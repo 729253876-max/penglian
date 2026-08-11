@@ -22,7 +22,7 @@ const loginInput = {
   code: "fictional-code",
   deviceId: "fictional-device",
   consent: {
-    policyVersion: "privacy-v1",
+    policyVersion: "2026-08-02",
     metadataRemoval: true
   }
 } as const;
@@ -80,6 +80,14 @@ describe("identity API", () => {
   it.each([
     { deviceId: loginInput.deviceId, consent: loginInput.consent },
     { code: loginInput.code, consent: loginInput.consent },
+    {
+      ...loginInput,
+      consent: { ...loginInput.consent, metadataRemoval: false }
+    },
+    {
+      ...loginInput,
+      consent: { ...loginInput.consent, policyVersion: "outdated-policy" }
+    },
     {
       ...loginInput,
       consent: { ...loginInput.consent, unexpected: true }

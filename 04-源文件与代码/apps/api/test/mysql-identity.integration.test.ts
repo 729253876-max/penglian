@@ -297,7 +297,7 @@ async function login(
     openId,
     deviceId,
     consent: {
-      policyVersion: "privacy-v1-integration",
+      policyVersion: "2026-08-02",
       metadataRemoval: true
     }
   });

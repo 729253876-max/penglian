@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
-  ConsentInput,
   RefreshInput
 } from "@photo-ai/contracts";
 import {
@@ -21,10 +20,10 @@ const identityConfig = {
   identityEncryptionKey: Buffer.alloc(32, 0x52),
   accessTokenLifetimeMilliseconds: 2 * 60 * 60 * 1000
 };
-const consent: ConsentInput = {
-  policyVersion: "privacy-v1",
+const consent = {
+  policyVersion: "2026-08-02",
   metadataRemoval: true
-};
+} as const;
 
 class MutableClock {
   public constructor(private current: Date) {}
@@ -277,6 +276,48 @@ async function refresh(
 }
 
 describe("IdentityService", () => {
+  it("refuses login without metadata-removal consent before opening a transaction", async () => {
+    const { repository, service } = createFixture();
+
+    await expect(service.login({
+      openId: "openid-without-consent",
+      deviceId: "device-without-consent",
+      consent: {
+        policyVersion: "2026-08-02",
+        metadataRemoval: false
+      }
+    } as unknown as Parameters<IdentityService["login"]>[0]))
+      .rejects.toThrow("CONSENT_REQUIRED");
+
+    expect(repository.state).toEqual({
+      users: [],
+      identities: [],
+      consents: [],
+      sessions: []
+    });
+  });
+
+  it("refuses login for an unapproved policy version before opening a transaction", async () => {
+    const { repository, service } = createFixture();
+
+    await expect(service.login({
+      openId: "openid-with-outdated-policy",
+      deviceId: "device-with-outdated-policy",
+      consent: {
+        policyVersion: "outdated-policy",
+        metadataRemoval: true
+      }
+    } as unknown as Parameters<IdentityService["login"]>[0]))
+      .rejects.toThrow("CONSENT_REQUIRED");
+
+    expect(repository.state).toEqual({
+      users: [],
+      identities: [],
+      consents: [],
+      sessions: []
+    });
+  });
+
   it("logs in transactionally with consent and exact 2-hour/30-day opaque expiries", async () => {
     const { repository, clock, service } = createFixture();
     const now = clock.now();
@@ -289,7 +330,7 @@ describe("IdentityService", () => {
     expect(repository.state.consents).toMatchObject([{
       userId,
       consentType: "METADATA_REMOVAL",
-      policyVersion: "privacy-v1",
+      policyVersion: "2026-08-02",
       granted: true,
       revokedAt: null
     }]);
