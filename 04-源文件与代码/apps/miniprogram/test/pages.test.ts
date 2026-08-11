@@ -10,10 +10,14 @@ const api = {
   getTask: vi.fn(),
   runPreview: vi.fn()
 };
+const productEvents = {
+  record: vi.fn()
+};
 const storage = new Map<string, unknown>();
 const reduceMotionStorageKey = "photo-ai:reduce-motion";
 
 vi.mock("../miniprogram/services/api", () => api);
+vi.mock("../miniprogram/services/product-events", () => ({ productEvents }));
 
 function event(eventId: string, sequence: number, type: EditTraceEvent["type"] = "STAGE_STARTED"): EditTraceEvent {
   const failed = type === "TASK_FAILED";
@@ -160,8 +164,14 @@ describe("home page", () => {
   it("routes the primary rescue action and demo evidence separately", async () => {
     const config = await loadPage("../miniprogram/pages/home/index");
     config.startPortraitDemo();
+    expect(productEvents.record).toHaveBeenLastCalledWith("HOME_PRIMARY_TAPPED", {
+      scenario: "TRAVEL_PORTRAIT"
+    });
     expect(wx.navigateTo).toHaveBeenLastCalledWith({ url: "/pages/plan/index?scenario=travel-portrait" });
     config.openDemoCase();
+    expect(productEvents.record).toHaveBeenLastCalledWith("DEMO_CASE_OPENED", {
+      source: "HOME"
+    });
     expect(wx.navigateTo).toHaveBeenLastCalledWith({ url: "/pages/cases/index" });
   });
 });
@@ -172,6 +182,9 @@ describe("cases page", () => {
 
     expect(config.data?.evidenceLabel).toBe("示例流程 / 非真实用户案例");
     config.startDemo();
+    expect(productEvents.record).toHaveBeenCalledWith("DEMO_STARTED", {
+      source: "CASE_PAGE"
+    });
     expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/plan/index?scenario=travel-portrait" });
   });
 });
@@ -546,10 +559,20 @@ describe("preview page", () => {
     expect(page.data.showDetails).toBe(false);
     config.setComparison.call(page, { detail: { value: 140 } });
     expect(page.data.comparePercent).toBe(100);
+    expect(productEvents.record).toHaveBeenLastCalledWith("PREVIEW_COMPARE_USED", {
+      mode: "SLIDER"
+    });
     config.setComparison.call(page, { detail: { value: -20 } });
     expect(page.data.comparePercent).toBe(0);
     config.toggleDetails.call(page);
     expect(page.data.showDetails).toBe(true);
+    expect(productEvents.record).toHaveBeenLastCalledWith("PREVIEW_DETAILS_TOGGLED", {
+      state: "OPEN"
+    });
+    config.toggleDetails.call(page);
+    expect(productEvents.record).toHaveBeenLastCalledWith("PREVIEW_DETAILS_TOGGLED", {
+      state: "CLOSED"
+    });
   });
 
   it("keeps the last valid comparison when the slider emits an invalid value", async () => {
@@ -561,6 +584,7 @@ describe("preview page", () => {
       config.setComparison.call(page, { detail: { value } });
       expect(page.data.comparePercent).toBe(37);
     }
+    expect(productEvents.record).toHaveBeenCalledTimes(1);
   });
 
   it("updates the comparison while the slider is being dragged", async () => {
