@@ -1,10 +1,10 @@
 # Project-002 修图 AI 小程序｜项目记忆与交接文档
 
 > 文档用途：持续记录用户与 Codex 在产品、商业、设计和技术层面的关键结论，供后续提炼、恢复上下文和人员交接使用。  
-> 当前版本：v03.8
+> 当前版本：v03.9
 > 创建日期：2026-07-21  
-> 最近更新：2026-08-09
-> 当前状态：B1-CODE 为 PARTIAL，B1-ENV 为 NOT RUN；B1 尚未集成，产品仍不可发布
+> 最近更新：2026-08-11
+> 当前状态：B1-CODE 为 PASS，B1-ENV 为 NOT RUN；B1 尚未集成，产品仍不可发布
 > 项目绝对路径：`D:\Documents\workspace\projects\Project-002-修图AI小程序`
 
 ## 0. 新对话快速接管
@@ -18,13 +18,14 @@
 - B1 分支：`codex/v1-b1-identity-consent`。
 - B1 独立 worktree：
   `D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-b1-identity-consent`。
-- B1 当前迁移基线 HEAD：`d2a10f3ec65ed2109a966dcc1d29287e93314608`；本文档
+- B1 最终代码修复基线 HEAD：`8f42371`；本文档
   提交后 HEAD 会前进，接管时以 `git log -1 --oneline` 为准。
 - B1 原实施 Task 1–6 已完成生产代码、自动化验证、逐任务独立审查和提交；双门禁
   实施 Tasks 1–4 也已完成并提交。
-- `B1-CODE`：当前为 **PARTIAL**。全量 Vitest 为 321 passed，真实 MySQL 6 项
-  skipped；全 workspace typecheck 因未跟踪 MySQL 草稿缺少新必填 TTL 而失败；
-  真实 MySQL 和最终全分支审查未完成。
+- `B1-CODE`：当前为 **PASS**。真实 MySQL 8 为 6/6、0 skipped；全量 Vitest 为
+  23 文件/334 测试通过；typecheck、runtime、微信 TypeScript build、diff check
+  和 `6908ac1..8f42371` 最终审查通过。审查发现的未授权布尔值与错误政策版本登录
+  两项 Important 已用 TDD 修复。
 - `B1-ENV`：当前为 **NOT RUN**。两份工程配置已写入正式 AppID，但没有正式 AppID
   的 IDE、preview、受控 API 或 Android、iOS、HarmonyOS 真机证据。
 - 产品仍不可发布；不得把任一仓库侧构建扩大为 WXML、IDE、真机或发布证据。
@@ -42,11 +43,11 @@
 - 双门禁 Task 3：三模式 API origin 与正式 AppID 配置，提交 `798df49`、
   `dc8d383`、`c323287`。
 - 双门禁 Task 4：登录错误语义与 `aria-role`，提交 `1f162e4`、`d2a10f3`。
-- 2026-08-09 当前 fresh 自动化：全量 `22 files / 321 tests passed`，另有真实
-  MySQL `1 file / 6 tests skipped`；skipped 不算通过。
+- 2026-08-11 fresh 自动化：全量 `23 files / 334 tests passed`；真实 MySQL
+  `1 file / 6 tests passed / 0 skipped`。
 - `npm.cmd run verify:miniprogram-runtime` 与微信 TypeScript build 通过。
-- 全 workspace typecheck 失败，唯一诊断为未跟踪 MySQL integration 草稿缺少必填
-  `accessTokenLifetimeMilliseconds` 的 `TS2345`；不得写成全量通过。
+- 全 workspace typecheck 已通过；此前 MySQL integration 草稿缺少必填 TTL 的
+  `TS2345` 已按生产契约修正，未放宽生产类型。
 - readiness 的 `1500ms` 仅是 mysql2 query inactivity timeout，不是端到端
   wall-clock deadline。
 - `aria-role="alert"` 只有代码自审与 reviewer 复核；TypeScript build 不验证 WXML，
@@ -54,11 +55,8 @@
 
 ### 0.3 阶段边界与下一步
 
-- Task 5 已把既有 README 与 B1 验证记录归一到双门禁文档提交；唯一继续保留的
-  未跟踪草稿是 `apps/api/test/mysql-identity.integration.test.ts`。不得修改、暂存
-  或提交该文件；它留给 Task 6。
-- `B1-CODE` 通过需要：仓库自动化、6 项真实 MySQL 8 测试和最终全分支审查全部
-  通过。应用连接池重建不是 MySQL 实例重启。
+- Task 6 与最终全分支审查已完成，`B1-CODE` 已通过。应用连接池重建不是 MySQL
+  实例重启；本轮没有验证数据库实例重启、备份或灾难恢复。
 - `B1-ENV` 通过需要：正式 AppID 的 Android、iOS、HarmonyOS 证据全部通过；
   HarmonyOS 原生微信与 Android 兼容层分开记录，不能互相替代。
 - `B1-ENV` 不阻塞 B1 代码集成，也不阻塞 B2 本地代码、模拟器和契约测试；它仍
@@ -83,13 +81,12 @@ D:\Documents\workspace\projects\Project-002-修图AI小程序\HANDOFF.md，
 
 B1 worktree 为
 `D:\Documents\workspace\projects\Project-002-修图AI小程序\.worktrees\v1-b1-identity-consent`，
-分支为 `codex/v1-b1-identity-consent`。当前 `B1-CODE` 为 PARTIAL：全量测试
-321 passed、真实 MySQL 6 skipped，全 workspace typecheck 仍被未跟踪 MySQL 草稿
-阻断，真实 MySQL 与最终全分支审查未完成。当前 `B1-ENV` 为 NOT RUN：正式 AppID
+分支为 `codex/v1-b1-identity-consent`。当前 `B1-CODE` 为 PASS：全量测试
+23 文件/334 通过、真实 MySQL 6/6 且 0 skipped，typecheck、runtime、微信构建和
+最终全分支审查通过。当前 `B1-ENV` 为 NOT RUN：正式 AppID
 虽已写入两工程，但没有 IDE、preview 或 Android、iOS、HarmonyOS 真机证据。
 
-继续 Task 6 前需要用户明确批准 MySQL 8 专用测试库与破坏性测试开关；密码不得
-进入聊天或仓库。B1-ENV 所需正式 AppID、AppSecret 安全注入、受控 API 与三系统
+下一步是决定 B1 代码分支如何集成，并另行执行 B1-ENV。B1-ENV 所需正式 AppID、AppSecret 安全注入、受控 API 与三系统
 设备另行申请。HarmonyOS 原生微信和 Android 兼容模式分开记录。任何云资源、费用、
 扫码、正式登录、真实图片或发布动作仍须用户另行明确批准。
 ```
@@ -449,7 +446,7 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 - `06-复盘与踩坑/V1阶段A验证记录-v01-20260726.md`：阶段 A 的永久验证证据、
   环境阻塞、未完成清单和阶段 B 进入条件。
 - `06-复盘与踩坑/V1阶段B1验证记录-v01-20260802.md`：B1 双门禁永久验证记录；
-  当前必须保持 `B1-CODE PARTIAL / B1-ENV NOT RUN`。
+  当前状态为 `B1-CODE PASS / B1-ENV NOT RUN`。
 - `.worktrees/v1-b1-identity-consent/`：B1 独立 worktree；不得把其未提交内容
   描述为已进入 B1 提交历史或 `master`。
 
@@ -466,10 +463,10 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 
 1. 阶段 A 环境验收已完成并集成，不重做 Task 1–9、最终审查修复、供应商评测
    或阶段 A 环境取证。
-2. B1 已完成的实现与双门禁 Tasks 1–4 不重做；先完成本 Task 5 文档归一。
-3. Task 6 在用户明确授权 MySQL 8 专用测试库和破坏性测试开关后，补齐未跟踪
-   integration 草稿的 TTL 参数并实际运行 6 项测试；skipped 不算通过。
-4. MySQL 全部通过后完成 B1 最终全分支审查，判定 `B1-CODE` 是否可集成。
+2. B1-CODE 已通过，不重做 Tasks 1–6、真实 MySQL 或最终全分支审查；下一步决定
+   `codex/v1-b1-identity-consent` 的集成方式。
+3. 临时 MySQL 与 DPAPI 在最终证据复核后按用户授权清理，不保留凭据副本。
+4. 代码集成不自动授权 B1-ENV、云资源、正式登录或发布。
 5. `B1-ENV` 另行取得正式 AppID、受控 API、AppSecret 安全注入与 Android、iOS、
    HarmonyOS 证据。该门禁不阻塞 B2 本地代码、模拟器和契约测试，但阻止真实用户、
    真实图片和发布。
@@ -543,3 +540,4 @@ PRD v01 之后截至 2026-07-24 新增或调整的内容如下。此处的“三
 | 2026-08-02 | v03.6 | 用户书面审阅并批准阶段 B0 正式设计规格 v01；使用 `superpowers:writing-plans` 拆分形成阶段索引及 B1–B4 四份详细实施计划，明确 B3 真实供应商和所有外部/费用动作的用户同意门禁 | 实施计划已编写并待执行方式选择；业务代码、云资源和生产发布均未开始 |
 | 2026-08-09 | v03.7 | 更新 B1 实施交接：原 Task 1–6 已完成生产代码、自动化验证、逐任务审查与提交；Task 7 已准备真实 MySQL 集成测试、运行说明和验证记录草稿，并记录正式微信与真机验收所需授权 | Task 7 因缺少获授权的 MySQL 8 专用库、受控凭据注入及 Android/iOS 真机环境保持 `PARTIAL / NOT ACCEPTED`；B1 尚未完成最终审查或集成 |
 | 2026-08-09 | v03.8 | 废弃造成循环依赖的旧单门禁，拆分 `B1-CODE` 与 `B1-ENV`；增加 HarmonyOS 独立证据、三模式 API 配置、应用连接池与 MySQL 实例边界，并迁移双门禁 Tasks 1–4 的真实结果 | `B1-CODE` 为 PARTIAL：321 passed、6 MySQL skipped、全 workspace typecheck 因唯一 `TS2345` 失败，真实 MySQL 与最终审查未完成；`B1-ENV` 为 NOT RUN，正式 AppID 写入工程不等于 IDE/三系统通过 |
+| 2026-08-11 | v03.9 | 完成真实 MySQL 8 6/6、deadlock 全事务有限重试、最终全分支审查与 consent 双层门禁修复；fresh 为 23 文件/334 测试通过 | `B1-CODE` 为 PASS；`B1-ENV` 仍为 NOT RUN，正式 AppID IDE、preview 与 Android/iOS/HarmonyOS 真机均未验收，产品不可发布 |

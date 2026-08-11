@@ -157,8 +157,9 @@ TypeScript 是唯一手写源；`build:wechat` 会生成微信可直接加载的
 - 连接材料只通过 DPAPI 在单个 PowerShell 测试进程中临时注入 `MYSQL_INTEGRATION_URL`，并显式设置 `MYSQL_INTEGRATION_ALLOW=1`；进程 `finally` 删除环境变量、释放 `SecureString` 和清空明文。
 - 聚焦真实 MySQL 8 测试：1 个文件、6/6 通过、0 skipped。覆盖生产迁移幂等、同 OpenID 并发/重复登录、并发 refresh 单一胜者、第六设备淘汰，以及连接池重建后活跃/撤销会话的持久性。
 - 并发登录在首次真实测试中暴露 MySQL deadlock；`withTransaction` 现仅对 `ER_LOCK_DEADLOCK` 且 `errno=1213` 进行最多三次的全事务重试。每次失败均先 rollback/release，再重新获取连接并 begin。单元测试覆盖成功重试、非 deadlock 不重试和耗尽后抛回原错误。
-- fresh 门禁（证据运行时 HEAD：`288597fcc80bfdecd37dcf153fca7d0cd7490c19`）：`npm.cmd run typecheck` 通过；受控环境下 `npm.cmd test -- --run` 为 23 文件、330 测试全部通过（含 MySQL 6/6，0 skipped）；`npm.cmd run verify:miniprogram-runtime`、`npm.cmd run build:wechat -w @photo-ai/miniprogram` 与 `git diff --check` 均通过。
-- 这只是 MySQL/自动化证据。`B1-CODE` 仍为 `PARTIAL / NOT ACCEPTED`，等待 controller 的独立 Task 6 审查、`6908ac1..HEAD` 全分支审查和最终 fresh 重跑；`B1-ENV` 仍为 `NOT RUN / NOT ACCEPTED`。
+- 最终全分支审查发现并修复两项 Important：后端此前允许 `metadataRemoval=false` 或任意客户端自报政策版本登录。现在 API 契约与服务层均只接受已批准的 `2026-08-02` 政策和显式 `true`，未授权请求在换取 OpenID、开启事务或签发 token 前拒绝。
+- fresh 门禁（代码修复基线：`8f42371`）：`npm.cmd run typecheck` 通过；受控环境下 `npm.cmd test -- --run` 为 23 文件、334 测试全部通过（含 MySQL 6/6，0 skipped）；`npm.cmd run verify:miniprogram-runtime`、`npm.cmd run build:wechat -w @photo-ai/miniprogram` 与 `git diff --check` 均通过。
+- `B1-CODE` 为 `PASS / ACCEPTED`，只表示仓库代码、真实 MySQL 8 和最终代码审查通过。`B1-ENV` 仍为 `NOT RUN / NOT ACCEPTED`；没有正式 AppID IDE、preview 或 Android、iOS、HarmonyOS 真机证据，产品仍不可发布。
 
 ## 阶段边界
 
