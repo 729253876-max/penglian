@@ -137,6 +137,7 @@ export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample
     decision,
     sampleCount: samples.length,
     successfulDeliveryCount: delivered.length,
+    identityApplicableCount: identity.length,
     metrics,
     gates
   };

@@ -48,6 +48,7 @@ export interface GateReport {
   decision: "GO" | "NO_GO";
   sampleCount: number;
   successfulDeliveryCount: number;
+  identityApplicableCount: number;
   metrics: Record<string, number>;
   gates: GateResult[];
 }

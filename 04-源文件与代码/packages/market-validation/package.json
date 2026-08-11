@@ -5,9 +5,11 @@
   "exports": "./src/index.ts",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "evaluate": "node --import tsx src/cli.ts"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0"
   }
 }
