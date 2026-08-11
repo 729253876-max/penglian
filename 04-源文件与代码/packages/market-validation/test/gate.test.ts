@@ -151,7 +151,8 @@ describe("evaluateGate", () => {
       operator: ">",
       passed: false
     }));
-    expect(report.gates.find((gate) => gate.id === "CONTRIBUTION_MARGIN")?.actual).toBeCloseTo(-1.89);
+    expect(report.gates.find((gate) => gate.id === "CONTRIBUTION_MARGIN")?.actual).toBeCloseTo(-3.78);
+    expect(report.metrics.contributionPerDelivery).toBeCloseTo(-1.89);
     expect(report.decision).toBe("NO_GO");
   });
 
@@ -183,6 +184,38 @@ describe("evaluateGate", () => {
     ]);
 
     expect(report.decision).toBe("GO");
+    expect(report.gates).toContainEqual(expect.objectContaining({
+      id: "CONTRIBUTION_MARGIN",
+      actual: 0.01,
+      passed: true
+    }));
+    expect(renderMarkdownReport(report)).toContain("| CONTRIBUTION_MARGIN | ¥0.01 | > ¥0.00 | PASS |");
+  });
+
+  it("reports aggregate one-fen contribution without rounding a passing gate to zero", () => {
+    const evaluationTools: EvaluationSample["tool"][] = [
+      "PORTRAIT_RETOUCH",
+      "QUALITY_ENHANCE",
+      "OBJECT_REMOVAL",
+      "OLD_PHOTO_RESTORE"
+    ];
+    const samples = Array.from({ length: 100 }, (_, index) => sample(`aggregate-${index + 1}`, {
+      tool: evaluationTools[index % evaluationTools.length]!,
+      inferenceCostYuan: index === 0 ? 0.99 : 1,
+      moderationCostYuan: 0,
+      retryCostYuan: 0,
+      storageCostYuan: 0,
+      bandwidthCostYuan: 0,
+      paymentFeeYuan: 0,
+      refundLossYuan: 0,
+      candidatePriceYuan: 1
+    }));
+
+    const report = evaluateGate(config, samples);
+
+    expect(report.decision).toBe("GO");
+    expect(report.successfulDeliveryCount).toBe(100);
+    expect(report.metrics.contributionPerDelivery).toBeCloseTo(0.0001, 8);
     expect(report.gates).toContainEqual(expect.objectContaining({
       id: "CONTRIBUTION_MARGIN",
       actual: 0.01,

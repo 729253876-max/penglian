@@ -199,7 +199,7 @@ export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample
     { id: "ORIGINAL_PREFERENCE", actual: preferredOverOriginalRate, threshold: config.thresholds.preferredOverOriginalRate, operator: ">=", passed: preferredOverOriginalRate >= config.thresholds.preferredOverOriginalRate },
     { id: "BENCHMARK_PREFERENCE", actual: preferredOverBenchmarkRate, threshold: config.thresholds.preferredOverBenchmarkRate, operator: ">=", passed: preferredOverBenchmarkRate >= config.thresholds.preferredOverBenchmarkRate },
     { id: "SAVE_INTENT", actual: willingToSaveRate, threshold: config.thresholds.willingToSaveRate, operator: ">=", passed: willingToSaveRate >= config.thresholds.willingToSaveRate },
-    { id: "CONTRIBUTION_MARGIN", actual: contributionPerDelivery, threshold: 0, operator: ">", passed: contributionFen > 0 }
+    { id: "CONTRIBUTION_MARGIN", actual: fenToYuan(contributionFen), threshold: 0, operator: ">", passed: contributionFen > 0 }
   ];
   const metrics = {
     coverageSatisfiedToolCount: coveredTools,
