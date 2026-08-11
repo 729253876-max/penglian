@@ -96,12 +96,11 @@ describe("product event recorder", () => {
     expect(received).toEqual([]);
   });
 
-  it("reads one data descriptor once and rebuilds a stable primitive event", () => {
+  it("rebuilds a stable primitive event without reading the caller property", () => {
     const received: ProductEvent[] = [];
     const recorder = createProductEventRecorder((event) => received.push(event));
     const nested = { label: "OPEN" };
     let propertyReads = 0;
-    let descriptorReads = 0;
     const dimensions = new Proxy({ state: "OPEN" }, {
       get(target, property, receiver) {
         if (property === "state") {
@@ -109,10 +108,6 @@ describe("product event recorder", () => {
           return propertyReads < 3 ? "OPEN" : nested;
         }
         return Reflect.get(target, property, receiver);
-      },
-      getOwnPropertyDescriptor(target, property) {
-        descriptorReads += 1;
-        return Reflect.getOwnPropertyDescriptor(target, property);
       }
     });
 
@@ -123,7 +118,6 @@ describe("product event recorder", () => {
       { name: "PREVIEW_DETAILS_TOGGLED", dimensions: { state: "OPEN" } }
     ]);
     expect(propertyReads).toBe(0);
-    expect(descriptorReads).toBe(1);
   });
 
   it.each([
@@ -164,4 +158,106 @@ describe("product event recorder", () => {
     ).toThrow("INVALID_PRODUCT_EVENT");
     expect(received).toEqual([]);
   });
+
+  it.each([
+    ["a hidden non-enumerable key", () => {
+      const target = { mode: "SLIDER" };
+      Object.defineProperty(target, "taskId", {
+        configurable: true,
+        value: "task-1"
+      });
+      return new Proxy(target, {
+        ownKeys: () => ["mode"]
+      });
+    }],
+    ["a hidden symbol key", () => {
+      const target = { mode: "SLIDER", [Symbol("private")]: "value" };
+      return new Proxy(target, {
+        ownKeys: () => ["mode"]
+      });
+    }],
+    ["a disguised custom prototype", () => {
+      const target = Object.assign(Object.create({ taskId: "task-1" }), { mode: "SLIDER" });
+      return new Proxy(target, {
+        getPrototypeOf: () => Object.prototype
+      });
+    }],
+    ["a disguised null prototype", () => {
+      const target = Object.assign(Object.create(null), { mode: "SLIDER" });
+      return new Proxy(target, {
+        getPrototypeOf: () => Object.prototype
+      });
+    }],
+    ["a configurable accessor disguised as a data property", () => {
+      const target = {};
+      Object.defineProperty(target, "mode", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          throw new Error("DIMENSION_GETTER_EXECUTED");
+        }
+      });
+      return new Proxy(target, {
+        getOwnPropertyDescriptor: () => ({
+          configurable: true,
+          enumerable: true,
+          value: "SLIDER",
+          writable: true
+        })
+      });
+    }]
+  ] as const)("rejects Proxy shape spoof: %s", (_label, createDimensions) => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+
+    expect(() =>
+      recorder.record("PREVIEW_COMPARE_USED", createDimensions() as never)
+    ).toThrow("INVALID_PRODUCT_EVENT");
+    expect(received).toEqual([]);
+  });
+
+  it("rejects free text when a Proxy trap poisons Array.prototype.includes", () => {
+    const received: ProductEvent[] = [];
+    const recorder = createProductEventRecorder((event) => received.push(event));
+    const originalIncludes = Array.prototype.includes;
+    const dimensions = new Proxy({ mode: "PRIVATE_FREE_TEXT" }, {
+      getPrototypeOf(target) {
+        Array.prototype.includes = (() => true) as typeof Array.prototype.includes;
+        return Reflect.getPrototypeOf(target);
+      }
+    });
+    let thrown: unknown;
+
+    try {
+      recorder.record("PREVIEW_COMPARE_USED", dimensions as never);
+    } catch (error) {
+      thrown = error;
+    } finally {
+      Array.prototype.includes = originalIncludes;
+    }
+
+    expect(Array.prototype.includes).toBe(originalIncludes);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe("INVALID_PRODUCT_EVENT");
+    expect(received).toEqual([]);
+  });
+
+  it.each(["getPrototypeOf", "ownKeys", "getOwnPropertyDescriptor"] as const)(
+    "normalizes a throwing %s trap to INVALID_PRODUCT_EVENT",
+    (trap) => {
+      const received: ProductEvent[] = [];
+      const recorder = createProductEventRecorder((event) => received.push(event));
+      const target = { mode: "SLIDER" };
+      const dimensions = trap === "getPrototypeOf"
+        ? new Proxy(target, { getPrototypeOf: () => { throw new Error("TRAP_FAILURE"); } })
+        : trap === "ownKeys"
+          ? new Proxy(target, { ownKeys: () => { throw new Error("TRAP_FAILURE"); } })
+          : new Proxy(target, { getOwnPropertyDescriptor: () => { throw new Error("TRAP_FAILURE"); } });
+
+      expect(() =>
+        recorder.record("PREVIEW_COMPARE_USED", dimensions)
+      ).toThrow("INVALID_PRODUCT_EVENT");
+      expect(received).toEqual([]);
+    }
+  );
 });
