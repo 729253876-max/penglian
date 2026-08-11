@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditTraceEvent } from "@photo-ai/contracts";
 
@@ -512,6 +513,26 @@ describe("preview page", () => {
     expect(page.data.comparePercent).toBe(0);
     config.toggleDetails.call(page);
     expect(page.data.showDetails).toBe(true);
+  });
+
+  it("keeps the last valid comparison when the slider emits an invalid value", async () => {
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+
+    config.setComparison.call(page, { detail: { value: 37 } });
+    for (const value of [undefined, "x", Number.NaN]) {
+      config.setComparison.call(page, { detail: { value } });
+      expect(page.data.comparePercent).toBe(37);
+    }
+  });
+
+  it("updates the comparison while the slider is being dragged", async () => {
+    const template = await readFile(
+      new URL("../miniprogram/pages/preview/index.wxml", import.meta.url),
+      "utf8"
+    );
+
+    expect(template).toContain('bindchanging="setComparison"');
   });
 
   it("returns to the portrait adjustment scenario", async () => {

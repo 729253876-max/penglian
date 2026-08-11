@@ -22,3 +22,17 @@
 - 未加入价格、解锁、真实上传、供应商调用或网络动作；未改动加载、失败、成功流程。
 - JS 仅由 `build:wechat` 生成，未手工编辑。
 - 自动化验证覆盖逻辑和编译；未在微信开发者工具中做真机视觉验收。需在后续 UI 验收时确认各设备宽度下的叠层裁切观感。
+
+## 审查修复 round 1/5
+
+### RED / GREEN
+
+- RED：在 `pages.test.ts` 增加非法输入与实时滑动绑定测试后，运行 `npm.cmd test -w @photo-ai/miniprogram -- pages.test.ts`；21 项中 2 项按预期失败：非法值将状态写成 `NaN`，模板缺少 `bindchanging="setComparison"`。
+- GREEN：`setComparison()` 对非有限数值直接返回，保留最后一个有效百分比；`slider` 同时绑定 `bindchanging` 与 `bindchange` 到同一处理函数。重新构建生成 JS 后，聚焦测试 21/21 通过。
+
+### 修复与验证
+
+- 修复文件：`pages/preview/index.ts`、`pages/preview/index.js`（由构建生成）、`pages/preview/index.wxml`、`test/pages.test.ts`。
+- `npm.cmd test -w @photo-ai/miniprogram -- pages.test.ts`：通过，1 个测试文件、21 个测试。
+- `npm.cmd run build:wechat -w @photo-ai/miniprogram`：通过，生成产物与 TS 同步。
+- 非法输入策略固定为保留当前有效值，避免 WXML 生成 `NaN%`；未触及其它页面、真实门禁、网络或供应商调用。

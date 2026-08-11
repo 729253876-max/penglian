@@ -14,7 +14,7 @@
         <text>原图</text>
         <text>精修后</text>
       </view>
-      <slider min="0" max="100" value="{{comparePercent}}" activeColor="#6c58c9" backgroundColor="#ded9d1" bindchange="setComparison" aria-label="拖动比较原图和精修后水印预览" />
+      <slider min="0" max="100" value="{{comparePercent}}" activeColor="#6c58c9" backgroundColor="#ded9d1" bindchanging="setComparison" bindchange="setComparison" aria-label="拖动比较原图和精修后水印预览" />
     </view>
   </view>
 
