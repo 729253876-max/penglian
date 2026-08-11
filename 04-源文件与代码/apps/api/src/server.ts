@@ -1,4 +1,5 @@
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createPool, type Pool } from "mysql2/promise";
 import { buildApp } from "./app.js";
 import { IdentityService } from "./application/identity-service.js";
@@ -58,7 +59,10 @@ export async function startServer(
 }
 
 const entrypoint = process.argv[1];
-if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
+if (
+  entrypoint &&
+  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entrypoint)
+) {
   void startServer().catch(() => {
     console.error("SERVER_START_FAILED");
     process.exitCode = 1;
