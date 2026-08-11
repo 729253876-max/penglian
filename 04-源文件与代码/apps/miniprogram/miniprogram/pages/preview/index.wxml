@@ -1,1 +1,37 @@
-<view class="page"><view class="preview card"><image class="preview-image" src="{{showAfter ? '/assets/demo-after.svg' : '/assets/demo-before.svg'}}" mode="aspectFill"/><view class="preview-tag">{{showAfter ? '精修后 · 水印预览' : '原图'}}</view><view class="film-note">DEMO / {{showAfter ? 'RETOUCHED' : 'ORIGINAL'}}</view></view><view class="compare"><button class="{{!showAfter ? 'active' : ''}}" bindtap="showBefore">原图</button><button class="{{showAfter ? 'active' : ''}}" bindtap="showAfter">精修后</button></view><view class="card notice"><view class="notice-title">水印预览已生成</view><view class="muted">这是效果确认用预览，不可保存。可以返回调整精修方向后再次查看。</view></view><button class="button-primary" bindtap="adjustAgain">返回调整方向</button></view>
+<view class="page">
+  <view class="preview card" aria-label="原图和精修后的可拖动比较">
+    <view class="preview-stage">
+      <image class="preview-image preview-after" src="/assets/demo-after.svg" mode="aspectFill" aria-label="精修后水印预览，恢复自然光影层次" />
+      <view class="before-mask" style="width: {{comparePercent}}%;">
+        <image class="preview-image preview-before" src="/assets/demo-before.svg" mode="aspectFill" aria-label="原图，保留拍摄时的人像与构图" />
+      </view>
+      <view class="compare-divider" style="left: {{comparePercent}}%;" aria-hidden="true"></view>
+      <view class="preview-tag original-tag">原图</view>
+      <view class="preview-tag retouched-tag">精修后 · 水印预览</view>
+    </view>
+    <view class="comparison-controls">
+      <view class="comparison-labels" aria-hidden="true">
+        <text>原图</text>
+        <text>精修后</text>
+      </view>
+      <slider min="0" max="100" value="{{comparePercent}}" activeColor="#6c58c9" backgroundColor="#ded9d1" bindchange="setComparison" aria-label="拖动比较原图和精修后水印预览" />
+    </view>
+  </view>
+
+  <view class="card identity-note" aria-label="精修保留范围">
+    <view class="notice-title">尽量保留本人、姿势和构图</view>
+    <view class="muted">只针对光线、暗部和肤质层次做自然修复，不改变人物身份与照片表达。</view>
+  </view>
+
+  <view class="card notice" aria-label="水印预览说明">
+    <view class="notice-title">水印预览不可保存</view>
+    <view class="muted">这是效果确认用预览，不能保存或导出。你可以返回调整精修方向后再次查看。</view>
+  </view>
+
+  <button class="button-primary" bindtap="adjustAgain">返回调整方向</button>
+
+  <view class="details card">
+    <button class="details-toggle" bindtap="toggleDetails" aria-expanded="{{showDetails}}">{{showDetails ? '收起精修详情' : '查看精修详情'}}</button>
+    <view wx:if="{{showDetails}}" class="details-copy">本次预览优先恢复面部暗部与整体光影层次，并保持自然肤质和原图氛围。</view>
+  </view>
+</view>

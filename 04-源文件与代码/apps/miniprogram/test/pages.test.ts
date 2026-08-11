@@ -500,15 +500,27 @@ describe("live page", () => {
 });
 
 describe("preview page", () => {
-  it("switches the visible comparison and returns to adjustment", async () => {
+  it("clamps comparison movement and keeps details collapsed by default", async () => {
     const config = await loadPage("../miniprogram/pages/preview/index");
     const page = pageInstance(config);
 
-    config.showBefore.call(page);
-    expect(page.data.showAfter).toBe(false);
-    config.showAfter.call(page);
-    expect(page.data.showAfter).toBe(true);
+    expect(page.data.comparePercent).toBe(50);
+    expect(page.data.showDetails).toBe(false);
+    config.setComparison.call(page, { detail: { value: 140 } });
+    expect(page.data.comparePercent).toBe(100);
+    config.setComparison.call(page, { detail: { value: -20 } });
+    expect(page.data.comparePercent).toBe(0);
+    config.toggleDetails.call(page);
+    expect(page.data.showDetails).toBe(true);
+  });
+
+  it("returns to the portrait adjustment scenario", async () => {
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+
     config.adjustAgain.call(page);
-    expect(wx.redirectTo).toHaveBeenCalledWith({ url: "/pages/plan/index" });
+    expect(wx.redirectTo).toHaveBeenCalledWith({
+      url: "/pages/plan/index?scenario=travel-portrait"
+    });
   });
 });

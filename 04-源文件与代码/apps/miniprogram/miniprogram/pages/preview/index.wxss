@@ -1,1 +1,19 @@
-.preview { position: relative; padding: 0; overflow: hidden; }.preview-image { display: block; width: 100%; height: 760rpx; background: #d8cec6; }.preview-tag { position: absolute; top: 24rpx; left: 24rpx; padding: 10rpx 18rpx; border-radius: 999rpx; color: #fff; background: rgba(23,23,25,.62); font-family: "DIN Alternate", sans-serif; font-size: 22rpx; }.film-note { position: absolute; right: 22rpx; bottom: 20rpx; color: #fff; font-family: "DIN Alternate", sans-serif; font-size: 19rpx; letter-spacing: 1rpx; }.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16rpx; margin: 24rpx 0; }.compare button { border-radius: 20rpx; color: #5d5862; background: #ece8e2; font-size: 27rpx; }.compare button.active { color: #fff; background: #6c58c9; }.notice { margin-bottom: 24rpx; }.notice-title { margin-bottom: 10rpx; font-size: 30rpx; font-weight: 750; }
+.preview { padding: 0; overflow: hidden; }
+.preview-stage { position: relative; height: 760rpx; overflow: hidden; background: #d8cec6; }
+.preview-image { display: block; width: 100%; height: 760rpx; background: #d8cec6; }
+.preview-after { position: absolute; inset: 0; }
+.before-mask { position: absolute; inset: 0 auto 0 0; overflow: hidden; }
+.preview-before { width: 686rpx; max-width: none; }
+.compare-divider { position: absolute; top: 0; bottom: 0; width: 4rpx; margin-left: -2rpx; background: #fff; box-shadow: 0 0 0 2rpx rgba(23, 23, 25, .22); }
+.compare-divider::after { position: absolute; top: 50%; left: 50%; width: 40rpx; height: 40rpx; border: 3rpx solid #fff; border-radius: 50%; background: #171719; content: "↔"; color: #fff; font-size: 24rpx; line-height: 34rpx; text-align: center; transform: translate(-50%, -50%); }
+.preview-tag { position: absolute; top: 24rpx; padding: 10rpx 18rpx; border-radius: 999rpx; color: #fff; background: rgba(23, 23, 25, .68); font-family: "DIN Alternate", sans-serif; font-size: 22rpx; font-weight: 700; }
+.original-tag { left: 24rpx; }
+.retouched-tag { right: 24rpx; background: rgba(74, 58, 128, .86); }
+.comparison-controls { padding: 24rpx 28rpx 30rpx; }
+.comparison-labels { display: flex; justify-content: space-between; color: #5d5862; font-family: "DIN Alternate", sans-serif; font-size: 22rpx; font-weight: 700; }
+.comparison-controls slider { margin: 10rpx 0 0; }
+.identity-note, .notice, .details { margin-top: 24rpx; }
+.notice-title { margin-bottom: 10rpx; font-size: 30rpx; font-weight: 750; }
+.details { padding: 0; overflow: hidden; }
+.details-toggle { padding: 0 28rpx; color: #39343f; background: transparent; font-size: 28rpx; font-weight: 700; line-height: 92rpx; text-align: left; }
+.details-copy { padding: 0 28rpx 28rpx; color: #77727f; font-size: 24rpx; line-height: 1.6; }
