@@ -7,6 +7,7 @@ export type EvaluationTool =
 export interface EvaluationSample {
   sampleId: string;
   tool: EvaluationTool;
+  authorizedForEvaluation: boolean;
   identityApplicable: boolean;
   identityPass: boolean;
   severeDefect: boolean;

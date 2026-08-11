@@ -13,7 +13,16 @@ const report: GateReport = {
     preferredOverOriginalRate: 6 / 8,
     preferredOverBenchmarkRate: 4 / 8,
     willingToSaveRate: 5 / 8,
-    contributionPerDelivery: 1.234
+    contributionPerDelivery: 1.234,
+    totalCostYuan: 7.65,
+    totalRevenueYuan: 17.52,
+    inferenceCostSubtotalYuan: 3.1,
+    moderationCostSubtotalYuan: 0.8,
+    retryCostSubtotalYuan: 1.25,
+    storageCostSubtotalYuan: 0.5,
+    bandwidthCostSubtotalYuan: 0.6,
+    paymentFeeSubtotalYuan: 0.4,
+    refundLossSubtotalYuan: 1
   },
   gates: [
     { id: "COVERAGE", actual: 3, threshold: 4, operator: ">=", passed: false },
@@ -35,6 +44,10 @@ describe("renderMarkdownReport", () => {
     expect(markdown).toContain("| IDENTITY | 5/6 (83.3%) | >= 95.0% | FAIL |");
     expect(markdown).toContain("| SEVERE_DEFECT | 1/10 (10.0%) | <= 5.0% | FAIL |");
     expect(markdown).toContain("| CONTRIBUTION_MARGIN | ¥1.23 | > ¥0.00 | PASS |");
+    expect(markdown).toContain("| 总成本 | ¥7.65 |");
+    expect(markdown).toContain("| 总收入 | ¥17.52 |");
+    expect(markdown).toContain("| 推理成本小计 | ¥3.10 |");
+    expect(markdown).toContain("| 退款损耗小计 | ¥1.00 |");
     expect(markdown.match(/^\| (?:COVERAGE|IDENTITY|SEVERE_DEFECT|ORIGINAL_PREFERENCE|BENCHMARK_PREFERENCE|SAVE_INTENT|CONTRIBUTION_MARGIN) \|/gm))
       .toHaveLength(7);
     expect(markdown).not.toContain('"metrics"');

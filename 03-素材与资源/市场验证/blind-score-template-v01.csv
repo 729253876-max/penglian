@@ -1,3 +1,2 @@
 sampleId,reviewerId,identityPass,severeDefect,preferredOverOriginal,preferredOverBenchmark,willingToSave
 sample-001,reviewer-a,true,false,true,true,true
-

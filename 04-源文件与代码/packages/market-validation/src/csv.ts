@@ -1,12 +1,16 @@
 import type { EvaluationSample, EvaluationTool } from "./types.js";
+import { isAnonymousSlug } from "./validation.js";
 
 const forbiddenFields = new Set([
   "imagepath", "imageurl", "openid", "phone", "token", "cookie", "secret", "mysqlurl", "databaseurl"
 ]);
 
-const manifestHeaders = ["sampleId", "tool", "identityApplicable"] as const;
+const manifestHeaders = [
+  "sampleId", "tool", "scenario", "identityApplicable", "authorizedForEvaluation"
+] as const;
 const scoresHeaders = [
-  "sampleId", "identityPass", "severeDefect", "preferredOverOriginal", "preferredOverBenchmark", "willingToSave"
+  "sampleId", "reviewerId", "identityPass", "severeDefect", "preferredOverOriginal",
+  "preferredOverBenchmark", "willingToSave"
 ] as const;
 const costsHeaders = [
   "sampleId", "successfulDelivery", "inferenceCostYuan", "moderationCostYuan", "retryCostYuan",
@@ -51,7 +55,7 @@ function parseCsv(text: string, headers: readonly string[]): CsvRow[] {
 }
 
 function assertSlug(value: string, field: string): void {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new Error(`INVALID_CSV_VALUE:${field}`);
+  if (!isAnonymousSlug(value)) throw new Error(`INVALID_CSV_VALUE:${field}`);
 }
 
 function booleanValue(value: string, field: string): boolean {
@@ -96,9 +100,17 @@ export function mergeEvaluationCsv(manifestCsv: string, scoresCsv: string, costs
     const cost = costs.get(sampleId)!;
     const tool = requiredValue(row, "tool");
     if (!tools.has(tool as EvaluationTool)) throw new Error("INVALID_CSV_VALUE:tool");
+    assertSlug(requiredValue(row, "scenario"), "scenario");
+    assertSlug(requiredValue(score, "reviewerId"), "reviewerId");
+    const authorizedForEvaluation = booleanValue(
+      requiredValue(row, "authorizedForEvaluation"),
+      "authorizedForEvaluation"
+    );
+    if (!authorizedForEvaluation) throw new Error(`UNAUTHORIZED_SAMPLE:${sampleId}`);
     return {
       sampleId,
       tool: tool as EvaluationTool,
+      authorizedForEvaluation,
       identityApplicable: booleanValue(requiredValue(row, "identityApplicable"), "identityApplicable"),
       identityPass: booleanValue(requiredValue(score, "identityPass"), "identityPass"),
       severeDefect: booleanValue(requiredValue(score, "severeDefect"), "severeDefect"),

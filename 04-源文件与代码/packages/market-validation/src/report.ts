@@ -71,7 +71,16 @@ export function renderMarkdownReport(report: GateReport): string {
     ["原图偏好率", rateValue(metric(report, "preferredOverOriginalRate"), report.successfulDeliveryCount)],
     ["基准偏好率", rateValue(metric(report, "preferredOverBenchmarkRate"), report.successfulDeliveryCount)],
     ["保存意愿率", rateValue(metric(report, "willingToSaveRate"), report.successfulDeliveryCount)],
-    ["单次成功交付贡献", yuan(metric(report, "contributionPerDelivery"))]
+    ["单次成功交付贡献", yuan(metric(report, "contributionPerDelivery"))],
+    ["总成本", yuan(metric(report, "totalCostYuan"))],
+    ["总收入", yuan(metric(report, "totalRevenueYuan"))],
+    ["推理成本小计", yuan(metric(report, "inferenceCostSubtotalYuan"))],
+    ["审核成本小计", yuan(metric(report, "moderationCostSubtotalYuan"))],
+    ["失败重试成本小计", yuan(metric(report, "retryCostSubtotalYuan"))],
+    ["存储成本小计", yuan(metric(report, "storageCostSubtotalYuan"))],
+    ["带宽成本小计", yuan(metric(report, "bandwidthCostSubtotalYuan"))],
+    ["支付手续费小计", yuan(metric(report, "paymentFeeSubtotalYuan"))],
+    ["退款损耗小计", yuan(metric(report, "refundLossSubtotalYuan"))]
   ].map(([metric, actual]) => `| ${metric} | ${actual} |`);
 
   return [

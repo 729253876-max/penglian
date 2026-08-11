@@ -38,11 +38,11 @@ function inputFiles(manifest: string, configText = config): Record<string, strin
     "config.json": configText,
     "manifest.csv": manifest,
     "scores.csv": [
-      "sampleId,identityPass,severeDefect,preferredOverOriginal,preferredOverBenchmark,willingToSave",
-      "p-1,true,false,true,true,true",
-      "q-1,true,false,true,true,true",
-      "o-1,true,false,true,true,true",
-      "r-1,true,false,true,true,true"
+      "sampleId,reviewerId,identityPass,severeDefect,preferredOverOriginal,preferredOverBenchmark,willingToSave",
+      "p-1,reviewer-a,true,false,true,true,true",
+      "q-1,reviewer-a,true,false,true,true,true",
+      "o-1,reviewer-a,true,false,true,true,true",
+      "r-1,reviewer-a,true,false,true,true,true"
     ].join("\n"),
     "costs.csv": [
       "sampleId,successfulDelivery,inferenceCostYuan,moderationCostYuan,retryCostYuan,storageCostYuan,bandwidthCostYuan,paymentFeeYuan,refundLossYuan,candidatePriceYuan",
@@ -56,11 +56,11 @@ function inputFiles(manifest: string, configText = config): Record<string, strin
 
 const args = ["--config", "config.json", "--manifest", "manifest.csv", "--scores", "scores.csv", "--costs", "costs.csv", "--out", "report.md"];
 const validManifest = [
-  "sampleId,tool,identityApplicable",
-  "p-1,PORTRAIT_RETOUCH,true",
-  "q-1,QUALITY_ENHANCE,false",
-  "o-1,OBJECT_REMOVAL,false",
-  "r-1,OLD_PHOTO_RESTORE,false"
+  "sampleId,tool,scenario,identityApplicable,authorizedForEvaluation",
+  "p-1,PORTRAIT_RETOUCH,portrait,true,true",
+  "q-1,QUALITY_ENHANCE,enhance,false,true",
+  "o-1,OBJECT_REMOVAL,cleanup,false,true",
+  "r-1,OLD_PHOTO_RESTORE,restore,false,true"
 ].join("\n");
 
 describe("runCli", () => {
@@ -78,13 +78,13 @@ describe("runCli", () => {
 
   it("returns 1 and writes a report for a valid NO_GO evaluation", async () => {
     const files = inputFiles([
-      "sampleId,tool,identityApplicable",
-      "p-1,PORTRAIT_RETOUCH,true",
-      "q-1,QUALITY_ENHANCE,false",
-      "o-1,OBJECT_REMOVAL,false",
-      "r-1,OLD_PHOTO_RESTORE,false"
+      "sampleId,tool,scenario,identityApplicable,authorizedForEvaluation",
+      "p-1,PORTRAIT_RETOUCH,portrait,true,true",
+      "q-1,QUALITY_ENHANCE,enhance,false,true",
+      "o-1,OBJECT_REMOVAL,cleanup,false,true",
+      "r-1,OLD_PHOTO_RESTORE,restore,false,true"
     ].join("\n"));
-    files["scores.csv"] = files["scores.csv"]!.replace("p-1,true,false", "p-1,false,false");
+    files["scores.csv"] = files["scores.csv"]!.replace("p-1,reviewer-a,true,false", "p-1,reviewer-a,false,false");
     const io = memoryIo(files);
     expect(await runCli(args, io)).toBe(1);
     expect(io.written["report.md"]).toContain("- 判定：NO_GO");
@@ -92,11 +92,11 @@ describe("runCli", () => {
 
   it("returns 0 and writes a report for a valid GO evaluation", async () => {
     const io = memoryIo(inputFiles([
-      "sampleId,tool,identityApplicable",
-      "p-1,PORTRAIT_RETOUCH,true",
-      "q-1,QUALITY_ENHANCE,false",
-      "o-1,OBJECT_REMOVAL,false",
-      "r-1,OLD_PHOTO_RESTORE,false"
+      "sampleId,tool,scenario,identityApplicable,authorizedForEvaluation",
+      "p-1,PORTRAIT_RETOUCH,portrait,true,true",
+      "q-1,QUALITY_ENHANCE,enhance,false,true",
+      "o-1,OBJECT_REMOVAL,cleanup,false,true",
+      "r-1,OLD_PHOTO_RESTORE,restore,false,true"
     ].join("\n")));
     expect(await runCli(args, io)).toBe(0);
     expect(io.written["report.md"]).toContain("- 判定：GO");

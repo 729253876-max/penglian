@@ -54,6 +54,21 @@ describe("anonymous quality gate fixtures", () => {
     expect(io.report).toMatch(/\| CONTRIBUTION_MARGIN \|.*\| FAIL \|/);
   });
 
+  it("executes the raw approved templates without trimming their file contents", async () => {
+    const io = diskIo();
+    const exitCode = await runCli([
+      "--config", resolve(templatesDirectory, "gate-config-v01.json"),
+      "--manifest", resolve(templatesDirectory, "anonymous-sample-manifest-template-v01.csv"),
+      "--scores", resolve(templatesDirectory, "blind-score-template-v01.csv"),
+      "--costs", resolve(templatesDirectory, "cost-template-v01.csv"),
+      "--out", "report.md"
+    ], io);
+
+    expect(io.stderrText).toBe("");
+    expect(exitCode).toBe(1);
+    expect(io.report).toContain("- 判定：NO_GO");
+  });
+
   it("allows only anonymous manifest, blind-score, and cost template fields with bounded example values", async () => {
     const readTemplate = async (name: string) => {
       const lines = (await readFile(resolve(templatesDirectory, name), "utf8")).trim().split(/\r?\n/);

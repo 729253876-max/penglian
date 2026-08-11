@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateGate, type EvaluationConfig, type EvaluationSample } from "../src/index.js";
+import {
+  evaluateGate,
+  renderMarkdownReport,
+  type EvaluationConfig,
+  type EvaluationSample
+} from "../src/index.js";
 
 const config: EvaluationConfig = {
   minimumSamplesByTool: {
@@ -21,6 +26,7 @@ function sample(id: string, patch: Partial<EvaluationSample> = {}): EvaluationSa
   return {
     sampleId: id,
     tool: "PORTRAIT_RETOUCH",
+    authorizedForEvaluation: true,
     identityApplicable: true,
     identityPass: true,
     severeDefect: false,
@@ -85,9 +91,20 @@ describe("evaluateGate", () => {
   });
 
   it("rejects invalid sample ids and unsupported tools", () => {
-    expect(() => evaluateGate(config, [sample("", { sampleId: "" })])).toThrow("INVALID_SAMPLE_ID");
+    for (const sampleId of ["", "UPPERCASE", "two--hyphens", " leading", "trailing "]) {
+      expect(() => evaluateGate(config, [sample("invalid", { sampleId })])).toThrow("INVALID_SAMPLE_ID");
+    }
     expect(() => evaluateGate(config, [sample("tool", { tool: "UNSUPPORTED_TOOL" as EvaluationSample["tool"] })]))
       .toThrow("INVALID_TOOL");
+  });
+
+  it("fails closed when direct API data is not explicitly authorized", () => {
+    expect(() => evaluateGate(config, [sample("unauthorized", { authorizedForEvaluation: false })]))
+      .toThrow("UNAUTHORIZED_SAMPLE");
+    const missingAuthorization = sample("missing-authorization") as Partial<EvaluationSample>;
+    delete missingAuthorization.authorizedForEvaluation;
+    expect(() => evaluateGate(config, [missingAuthorization as EvaluationSample]))
+      .toThrow("UNAUTHORIZED_SAMPLE");
   });
 
   it("rejects non-finite and negative candidate prices", () => {
@@ -136,5 +153,66 @@ describe("evaluateGate", () => {
     }));
     expect(report.gates.find((gate) => gate.id === "CONTRIBUTION_MARGIN")?.actual).toBeCloseTo(-1.89);
     expect(report.decision).toBe("NO_GO");
+  });
+
+  it("treats mathematical zero contribution as NO_GO and renders the same result", () => {
+    const report = evaluateGate(config, [
+      sample("p-1", { inferenceCostYuan: 0.1, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0.8 }),
+      sample("p-2", { inferenceCostYuan: 0.7, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("q-1", { tool: "QUALITY_ENHANCE", identityApplicable: false, inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("o-1", { tool: "OBJECT_REMOVAL", identityApplicable: false, inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("r-1", { tool: "OLD_PHOTO_RESTORE", inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 })
+    ]);
+
+    expect(report.decision).toBe("NO_GO");
+    expect(report.gates).toContainEqual(expect.objectContaining({
+      id: "CONTRIBUTION_MARGIN",
+      actual: 0,
+      passed: false
+    }));
+    expect(renderMarkdownReport(report)).toContain("| CONTRIBUTION_MARGIN | ¥0.00 | > ¥0.00 | FAIL |");
+  });
+
+  it("passes the smallest positive aggregate fen when all other gates pass", () => {
+    const report = evaluateGate(config, [
+      sample("p-1", { inferenceCostYuan: 0.1, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0.81 }),
+      sample("p-2", { successfulDelivery: false, inferenceCostYuan: 0.7, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("q-1", { tool: "QUALITY_ENHANCE", identityApplicable: false, successfulDelivery: false, inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("o-1", { tool: "OBJECT_REMOVAL", identityApplicable: false, successfulDelivery: false, inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 }),
+      sample("r-1", { tool: "OLD_PHOTO_RESTORE", successfulDelivery: false, inferenceCostYuan: 0, moderationCostYuan: 0, storageCostYuan: 0, bandwidthCostYuan: 0, paymentFeeYuan: 0, candidatePriceYuan: 0 })
+    ]);
+
+    expect(report.decision).toBe("GO");
+    expect(report.gates).toContainEqual(expect.objectContaining({
+      id: "CONTRIBUTION_MARGIN",
+      actual: 0.01,
+      passed: true
+    }));
+    expect(renderMarkdownReport(report)).toContain("| CONTRIBUTION_MARGIN | ¥0.01 | > ¥0.00 | PASS |");
+  });
+
+  it("publishes total revenue, total cost, and all seven cost subtotals", () => {
+    const report = evaluateGate(config, [sample("audit", {
+      inferenceCostYuan: 0.1,
+      moderationCostYuan: 0.2,
+      retryCostYuan: 0.3,
+      storageCostYuan: 0.4,
+      bandwidthCostYuan: 0.5,
+      paymentFeeYuan: 0.6,
+      refundLossYuan: 0.7,
+      candidatePriceYuan: 8
+    })]);
+
+    expect(report.metrics).toMatchObject({
+      totalCostYuan: 2.8,
+      totalRevenueYuan: 8,
+      inferenceCostSubtotalYuan: 0.1,
+      moderationCostSubtotalYuan: 0.2,
+      retryCostSubtotalYuan: 0.3,
+      storageCostSubtotalYuan: 0.4,
+      bandwidthCostSubtotalYuan: 0.5,
+      paymentFeeSubtotalYuan: 0.6,
+      refundLossSubtotalYuan: 0.7
+    });
   });
 });

@@ -5,6 +5,7 @@ import type {
   GateReport,
   GateResult
 } from "./types.js";
+import { isAnonymousSlug } from "./validation.js";
 
 const tools: EvaluationTool[] = [
   "PORTRAIT_RETOUCH",
@@ -72,6 +73,7 @@ export function parseEvaluationConfig(value: unknown): EvaluationConfig {
 }
 
 const booleanFields = [
+  "authorizedForEvaluation",
   "identityApplicable",
   "identityPass",
   "severeDefect",
@@ -109,8 +111,12 @@ function validateSamples(samples: EvaluationSample[]): void {
       }
     }
 
-    if (typeof sample.sampleId !== "string" || sample.sampleId.trim().length === 0) {
+    if (!isAnonymousSlug(sample.sampleId)) {
       throw new Error("INVALID_SAMPLE_ID");
+    }
+
+    if (sample.authorizedForEvaluation !== true) {
+      throw new Error("UNAUTHORIZED_SAMPLE");
     }
 
     if (!tools.includes(sample.tool)) {
@@ -128,16 +134,26 @@ function validateSamples(samples: EvaluationSample[]): void {
       }
     }
 
-    for (const field of costFields) {
-      if (!Number.isFinite(sample[field]) || sample[field] < 0) {
-        throw new Error("INVALID_COST");
-      }
-    }
-
-    if (!Number.isFinite(sample.candidatePriceYuan) || sample.candidatePriceYuan < 0) {
-      throw new Error("INVALID_PRICE");
-    }
+    for (const field of costFields) moneyToFen(sample[field], "INVALID_COST");
+    moneyToFen(sample.candidatePriceYuan, "INVALID_PRICE");
   }
+}
+
+function moneyToFen(value: number, errorCode: "INVALID_COST" | "INVALID_PRICE"): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(errorCode);
+  const fen = Math.round(value * 100);
+  if (!Number.isSafeInteger(fen) || Math.abs(value * 100 - fen) > 1e-8) throw new Error(errorCode);
+  return fen;
+}
+
+function addFen(total: number, value: number, errorCode: "INVALID_COST" | "INVALID_PRICE"): number {
+  const result = total + value;
+  if (!Number.isSafeInteger(result)) throw new Error(errorCode);
+  return result;
+}
+
+function fenToYuan(fen: number): number {
+  return fen / 100;
 }
 
 function rate(numerator: number, denominator: number): number {
@@ -164,14 +180,18 @@ export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample
     delivered.length
   );
   const willingToSaveRate = rate(delivered.filter((sample) => sample.willingToSave).length, delivered.length);
-  const totalCost = samples.reduce((sum, sample) => sum +
-    sample.inferenceCostYuan + sample.moderationCostYuan + sample.retryCostYuan +
-    sample.storageCostYuan + sample.bandwidthCostYuan + sample.paymentFeeYuan +
-    sample.refundLossYuan, 0);
-  const totalRevenue = delivered.reduce((sum, sample) => sum + sample.candidatePriceYuan, 0);
+  const costSubtotalFen = Object.fromEntries(costFields.map((field) => [
+    field,
+    samples.reduce((sum, sample) => addFen(sum, moneyToFen(sample[field], "INVALID_COST"), "INVALID_COST"), 0)
+  ])) as Record<typeof costFields[number], number>;
+  const totalCostFen = costFields.reduce((sum, field) =>
+    addFen(sum, costSubtotalFen[field], "INVALID_COST"), 0);
+  const totalRevenueFen = delivered.reduce((sum, sample) =>
+    addFen(sum, moneyToFen(sample.candidatePriceYuan, "INVALID_PRICE"), "INVALID_PRICE"), 0);
+  const contributionFen = totalRevenueFen - totalCostFen;
   const contributionPerDelivery = delivered.length === 0
     ? Number.NEGATIVE_INFINITY
-    : (totalRevenue - totalCost) / delivered.length;
+    : contributionFen === 0 ? 0 : fenToYuan(contributionFen) / delivered.length;
   const gates: GateResult[] = [
     { id: "COVERAGE", actual: coveredTools, threshold: tools.length, operator: ">=", passed: coveredTools === tools.length },
     { id: "IDENTITY", actual: identityPassRate, threshold: config.thresholds.identityPassRate, operator: ">=", passed: identityPassRate >= config.thresholds.identityPassRate },
@@ -179,7 +199,7 @@ export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample
     { id: "ORIGINAL_PREFERENCE", actual: preferredOverOriginalRate, threshold: config.thresholds.preferredOverOriginalRate, operator: ">=", passed: preferredOverOriginalRate >= config.thresholds.preferredOverOriginalRate },
     { id: "BENCHMARK_PREFERENCE", actual: preferredOverBenchmarkRate, threshold: config.thresholds.preferredOverBenchmarkRate, operator: ">=", passed: preferredOverBenchmarkRate >= config.thresholds.preferredOverBenchmarkRate },
     { id: "SAVE_INTENT", actual: willingToSaveRate, threshold: config.thresholds.willingToSaveRate, operator: ">=", passed: willingToSaveRate >= config.thresholds.willingToSaveRate },
-    { id: "CONTRIBUTION_MARGIN", actual: contributionPerDelivery, threshold: 0, operator: ">", passed: contributionPerDelivery > 0 }
+    { id: "CONTRIBUTION_MARGIN", actual: contributionPerDelivery, threshold: 0, operator: ">", passed: contributionFen > 0 }
   ];
   const metrics = {
     coverageSatisfiedToolCount: coveredTools,
@@ -188,7 +208,16 @@ export function evaluateGate(config: EvaluationConfig, samples: EvaluationSample
     preferredOverOriginalRate,
     preferredOverBenchmarkRate,
     willingToSaveRate,
-    contributionPerDelivery
+    contributionPerDelivery,
+    totalCostYuan: fenToYuan(totalCostFen),
+    totalRevenueYuan: fenToYuan(totalRevenueFen),
+    inferenceCostSubtotalYuan: fenToYuan(costSubtotalFen.inferenceCostYuan),
+    moderationCostSubtotalYuan: fenToYuan(costSubtotalFen.moderationCostYuan),
+    retryCostSubtotalYuan: fenToYuan(costSubtotalFen.retryCostYuan),
+    storageCostSubtotalYuan: fenToYuan(costSubtotalFen.storageCostYuan),
+    bandwidthCostSubtotalYuan: fenToYuan(costSubtotalFen.bandwidthCostYuan),
+    paymentFeeSubtotalYuan: fenToYuan(costSubtotalFen.paymentFeeYuan),
+    refundLossSubtotalYuan: fenToYuan(costSubtotalFen.refundLossYuan)
   };
   const decision = gates.every((gate) => gate.passed) ? "GO" : "NO_GO";
 
