@@ -161,6 +161,20 @@ describe("plan page", () => {
 });
 
 describe("home page", () => {
+  it("locks the first-screen rescue promise in the rendered template", async () => {
+    const template = await readFile(
+      new URL("../miniprogram/pages/home/index.wxml", import.meta.url),
+      "utf8"
+    );
+
+    expect(template).toContain(
+      '<view class="title" role="heading" aria-level="1">这张重要照片，还能救得更好。</view>'
+    );
+    expect(template).toContain(
+      '<view class="subtitle">尽量保留本人、姿势和构图，先看预览，满意再解锁。</view>'
+    );
+  });
+
   it("routes the primary rescue action and demo evidence separately", async () => {
     const config = await loadPage("../miniprogram/pages/home/index");
     config.startPortraitDemo();
@@ -190,6 +204,17 @@ describe("cases page", () => {
 });
 
 describe("live page", () => {
+  it("keeps the full real-event stream wired to the live folding control", async () => {
+    const template = await readFile(
+      new URL("../miniprogram/pages/live/index.wxml", import.meta.url),
+      "utf8"
+    );
+
+    expect(template).toContain('bindtap="toggleAllEvents"');
+    expect(template).toContain('wx:if="{{showAllEvents}}"');
+    expect(template).toContain('wx:for="{{visibleEvents}}"');
+  });
+
   it("keeps detailed real events collapsed until the user expands them", async () => {
     vi.useFakeTimers();
     api.getTask.mockResolvedValueOnce({
@@ -551,6 +576,35 @@ describe("live page", () => {
 });
 
 describe("preview page", () => {
+  it("keeps the product-demo boundary visible with safe image accessibility copy", async () => {
+    const [planTemplate, previewTemplate] = await Promise.all([
+      readFile(
+        new URL("../miniprogram/pages/plan/index.wxml", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../miniprogram/pages/preview/index.wxml", import.meta.url),
+        "utf8"
+      )
+    ]);
+
+    expect(planTemplate).toContain(
+      '<view class="demo-boundary">产品示例 / 非真实用户结果</view>'
+    );
+    expect(planTemplate).toContain(
+      'aria-label="产品示例原图，非真实用户照片或分析结果"'
+    );
+    expect(previewTemplate).toContain(
+      '<view class="demo-boundary">产品示例 / 非真实用户结果</view>'
+    );
+    expect(previewTemplate).toContain(
+      'aria-label="产品示例精修效果，非真实用户结果，不代表供应商质量"'
+    );
+    expect(previewTemplate).toContain(
+      'aria-label="产品示例原图，非真实用户照片"'
+    );
+  });
+
   it("clamps comparison movement and keeps details collapsed by default", async () => {
     const config = await loadPage("../miniprogram/pages/preview/index");
     const page = pageInstance(config);

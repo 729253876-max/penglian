@@ -1,7 +1,7 @@
 <view class="page home">
   <view class="eyebrow">IMPORTANT PHOTO RESCUE</view>
-  <view class="title" role="heading" aria-level="1">把重要照片，救回你想留下的那一刻</view>
-  <view class="subtitle">先从一张旅行人像开始：保留五官、肤质与原图构图，只修复光线带来的遗憾。</view>
+  <view class="title" role="heading" aria-level="1">这张重要照片，还能救得更好。</view>
+  <view class="subtitle">尽量保留本人、姿势和构图，先看预览，满意再解锁。</view>
 
   <view class="hero card">
     <view class="photo-frame">

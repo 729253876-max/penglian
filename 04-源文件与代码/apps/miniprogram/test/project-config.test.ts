@@ -33,7 +33,10 @@ const expectedRuntimeFiles = [
   "pages/preview/index.js",
   "pages/privacy/index.js",
   "services/api.js",
+  "services/edit-trace-presentation.js",
   "services/edit-trace.js",
+  "services/product-events.js",
+  "services/rescue-scenarios.js",
   "services/runtime-contracts.js",
   "services/session.js"
 ] as const;

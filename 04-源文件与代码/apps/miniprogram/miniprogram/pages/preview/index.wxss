@@ -1,4 +1,5 @@
 .preview { padding: 0; overflow: hidden; }
+.demo-boundary { padding: 18rpx 24rpx; color: #5744b2; background: #eeeaff; font-size: 22rpx; font-weight: 700; }
 .preview-stage { position: relative; height: 760rpx; overflow: hidden; background: #d8cec6; }
 .preview-image { display: block; width: 100%; height: 760rpx; background: #d8cec6; }
 .preview-after { position: absolute; inset: 0; }
