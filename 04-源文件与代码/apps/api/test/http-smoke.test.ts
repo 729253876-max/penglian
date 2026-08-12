@@ -5,8 +5,8 @@ import { buildApp } from "../src/app.js";
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 } as const;
 const headers = {
   authorization: "Bearer fictional-http-smoke-token"

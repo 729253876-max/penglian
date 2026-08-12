@@ -114,6 +114,22 @@ const createInputOutputMatchesPublicType: CreateTaskInput = CreateTaskInputSchem
 void schemaOutputMatchesPublicType;
 void createInputOutputMatchesPublicType;
 
+const traceWithMismatchedDiscriminants: EditTraceEvent = {
+  eventId: "evt-mismatched-discriminants",
+  taskId: "task-type",
+  sequence: 1,
+  type: "PLAN_READY",
+  phase: "PLAN",
+  occurredAt: "2026-07-26T00:00:00.000Z",
+  visibility: "PREVIEW",
+  evidenceSource: "QUALITY_GATE",
+  copyKey: "quality.fidelity.passed",
+  // @ts-expect-error PLAN_READY must use its plan copy key, system evidence, and direction payload
+  payload: { checks: ["IDENTITY"] }
+};
+
+void traceWithMismatchedDiscriminants;
+
 describe("task contracts", () => {
   it("accepts a faithful portrait task", () => {
     expect(CreateTaskInputSchema.parse({

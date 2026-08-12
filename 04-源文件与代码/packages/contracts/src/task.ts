@@ -138,68 +138,31 @@ const PreviewPayloadSchema = z.object({
 }).strict();
 const FailurePayloadSchema = z.object({ code: TaskFailureCodeSchema }).strict();
 
-const EditTracePayloadSchema = z.union([
-  EmptyPayloadSchema,
-  AssetApprovedPayloadSchema,
-  FindingPayloadSchema,
-  ProtectionPayloadSchema,
-  DirectionPayloadSchema,
-  StagePayloadSchema,
-  ParameterPayloadSchema,
-  QualityPassedPayloadSchema,
-  QualityFailedPayloadSchema,
-  RetryPayloadSchema,
-  PreviewPayloadSchema,
-  FailurePayloadSchema
-]);
-
-const editTraceRules = {
-  ASSET_APPROVED: ["UPLOAD", "upload.asset.approved", AssetApprovedPayloadSchema, ["SYSTEM_CHECK"]],
-  DIAGNOSIS_STARTED: ["DIAGNOSIS", "portrait.diagnosis.started", EmptyPayloadSchema, ["SYSTEM_CHECK"]],
-  DIAGNOSIS_FINDING: ["DIAGNOSIS", "portrait.diagnosis.light", FindingPayloadSchema, ["SYSTEM_CHECK"]],
-  PROTECTION_RECORDED: ["DIAGNOSIS", "portrait.protection.recorded", ProtectionPayloadSchema, ["SYSTEM_CHECK"]],
-  PLAN_READY: ["PLAN", "portrait.plan.natural", DirectionPayloadSchema, ["SYSTEM_CHECK"]],
-  PLAN_SELECTED: ["PLAN", "portrait.plan.selected", DirectionPayloadSchema, ["USER_SELECTION"]],
-  STAGE_STARTED: ["RETOUCH", "portrait.stage.retouch.started", StagePayloadSchema, ["PROVIDER_RECEIPT"]],
-  PARAM_DIRECTION_APPLIED: ["RETOUCH", "portrait.parameter.direction", ParameterPayloadSchema, ["PROVIDER_RECEIPT"]],
-  STAGE_COMPLETED: ["RETOUCH", "portrait.stage.retouch.completed", StagePayloadSchema, ["PROVIDER_RECEIPT"]],
-  QUALITY_CHECK_STARTED: ["QUALITY", "quality.started", EmptyPayloadSchema, ["QUALITY_GATE"]],
-  QUALITY_CHECK_PASSED: ["QUALITY", "quality.fidelity.passed", QualityPassedPayloadSchema, ["QUALITY_GATE"]],
-  QUALITY_CHECK_FAILED: ["QUALITY", "quality.fidelity.failed", QualityFailedPayloadSchema, ["QUALITY_GATE"]],
-  RETRY_STARTED: ["RETOUCH", "portrait.retry.started", RetryPayloadSchema, ["SYSTEM_CHECK"]],
-  PREVIEW_READY: ["DELIVERY", "preview.ready", PreviewPayloadSchema, ["QUALITY_GATE"]],
-  TASK_FAILED: ["DELIVERY", "preview.provider.failed", FailurePayloadSchema, ["SYSTEM_CHECK", "QUALITY_GATE"]]
-} as const;
-
-export const EditTraceEventSchema = z.object({
+const EventIdentityShape = {
   eventId: z.string().min(1),
   taskId: z.string().min(1),
   sequence: z.number().int().positive(),
-  type: EditTraceEventTypeSchema,
-  phase: EditTracePhaseSchema,
   occurredAt: z.string().datetime(),
-  visibility: EditTraceVisibilitySchema,
-  evidenceSource: EditTraceEvidenceSourceSchema,
-  copyKey: EditTraceCopyKeySchema,
-  payload: EditTracePayloadSchema
-}).strict().superRefine((event, context) => {
-  const [phase, copyKey, payloadSchema, evidenceSources] = editTraceRules[event.type];
-  if (event.phase !== phase) {
-    context.addIssue({ code: "custom", path: ["phase"], message: `Invalid phase for ${event.type}` });
-  }
-  if (event.copyKey !== copyKey) {
-    context.addIssue({ code: "custom", path: ["copyKey"], message: `Invalid copy key for ${event.type}` });
-  }
-  if (!(evidenceSources as readonly string[]).includes(event.evidenceSource)) {
-    context.addIssue({ code: "custom", path: ["evidenceSource"], message: `Invalid evidence source for ${event.type}` });
-  }
-  const payloadResult = payloadSchema.safeParse(event.payload);
-  if (!payloadResult.success) {
-    for (const issue of payloadResult.error.issues) {
-      context.addIssue({ ...issue, path: ["payload", ...issue.path] });
-    }
-  }
-});
+  visibility: EditTraceVisibilitySchema
+};
+
+export const EditTraceEventSchema = z.discriminatedUnion("type", [
+  z.object({ ...EventIdentityShape, type: z.literal("ASSET_APPROVED"), phase: z.literal("UPLOAD"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("upload.asset.approved"), payload: AssetApprovedPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("DIAGNOSIS_STARTED"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.diagnosis.started"), payload: EmptyPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("DIAGNOSIS_FINDING"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.diagnosis.light"), payload: FindingPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PROTECTION_RECORDED"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.protection.recorded"), payload: ProtectionPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PLAN_READY"), phase: z.literal("PLAN"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.plan.natural"), payload: DirectionPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PLAN_SELECTED"), phase: z.literal("PLAN"), evidenceSource: z.literal("USER_SELECTION"), copyKey: z.literal("portrait.plan.selected"), payload: DirectionPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("STAGE_STARTED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("PROVIDER_RECEIPT"), copyKey: z.literal("portrait.stage.retouch.started"), payload: StagePayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PARAM_DIRECTION_APPLIED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("PROVIDER_RECEIPT"), copyKey: z.literal("portrait.parameter.direction"), payload: ParameterPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("STAGE_COMPLETED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("PROVIDER_RECEIPT"), copyKey: z.literal("portrait.stage.retouch.completed"), payload: StagePayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("QUALITY_CHECK_STARTED"), phase: z.literal("QUALITY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("quality.started"), payload: EmptyPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("QUALITY_CHECK_PASSED"), phase: z.literal("QUALITY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("quality.fidelity.passed"), payload: QualityPassedPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("QUALITY_CHECK_FAILED"), phase: z.literal("QUALITY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("quality.fidelity.failed"), payload: QualityFailedPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("RETRY_STARTED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.retry.started"), payload: RetryPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PREVIEW_READY"), phase: z.literal("DELIVERY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("preview.ready"), payload: PreviewPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("TASK_FAILED"), phase: z.literal("DELIVERY"), evidenceSource: z.enum(["SYSTEM_CHECK", "QUALITY_GATE"]), copyKey: z.literal("preview.provider.failed"), payload: FailurePayloadSchema }).strict()
+]);
 
 const PortraitTaskInputSchema = z.object({
   tool: z.literal("PORTRAIT_RETOUCH"),

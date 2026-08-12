@@ -6,8 +6,8 @@ import type { TaskApiService } from "../src/routes/tasks.js";
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 } as const;
 
 function buildTaskApp(options: BuildAppOptions = {}) {
@@ -141,7 +141,7 @@ describe("tasks API", () => {
       "an unsupported portrait direction",
       {
         ...portraitInput,
-        direction: "WARM"
+        direction: "CLEAR_RESCUE"
       }
     ],
     [
@@ -150,7 +150,7 @@ describe("tasks API", () => {
         ...portraitInput,
         parameters: {
           ...portraitInput.parameters,
-          brightness: 25
+          detailLevel: 25
         }
       }
     ]

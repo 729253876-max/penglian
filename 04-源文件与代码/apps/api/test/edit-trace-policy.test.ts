@@ -11,6 +11,7 @@ const baseEvent = {
   phase: "PLAN",
   occurredAt: "2026-07-24T00:00:00.000Z",
   visibility: "PREVIEW" as const,
+  evidenceSource: "SYSTEM_CHECK" as const,
   copyKey: "portrait.plan.natural"
 };
 
@@ -18,7 +19,7 @@ describe("edit trace policy", () => {
   it("accepts a permitted event and preserves only its event-specific public payload", () => {
     const event = {
       ...baseEvent,
-      payload: { direction: "NATURAL" as const }
+      payload: { direction: "NATURAL_RESCUE" as const }
     };
 
     expect(sanitizeEditTraceEvent(event)).toEqual(event);
@@ -31,6 +32,7 @@ describe("edit trace policy", () => {
       sequence: 2,
       type: "STAGE_COMPLETED" as const,
       phase: "RETOUCH",
+      evidenceSource: "PROVIDER_RECEIPT" as const,
       copyKey: "portrait.stage.retouch.completed",
       payload: { stage: "LOCAL_LIGHT_AND_SKIN" as const }
     };
@@ -40,8 +42,9 @@ describe("edit trace policy", () => {
       sequence: 3,
       type: "PARAM_DIRECTION_APPLIED" as const,
       phase: "RETOUCH",
+      evidenceSource: "PROVIDER_RECEIPT" as const,
       copyKey: "portrait.parameter.direction",
-      payload: { direction: "NATURAL" as const, level: "MODERATE" as const }
+      payload: { direction: "NATURAL_RESCUE" as const, level: "MODERATE" as const }
     };
 
     expect(sanitizeEditTraceEvent(stageEvent)).toEqual(stageEvent);
@@ -84,7 +87,7 @@ describe("edit trace policy", () => {
     const event = {
       ...baseEvent,
       payload: {
-        direction: "NATURAL",
+        direction: "NATURAL_RESCUE",
         publicSummary: "已按你的修图方向完成参数调整，不展示内部 reasoning。"
       }
     };
@@ -105,7 +108,7 @@ describe("edit trace policy", () => {
     ]) {
       expect(() => sanitizeEditTraceEvent({
         ...baseEvent,
-        payload: { direction: "NATURAL", [key]: "must-not-ship" }
+        payload: { direction: "NATURAL_RESCUE", [key]: "must-not-ship" }
       } as unknown as EditTraceEvent)).toThrow(ZodError);
     }
   });
@@ -141,7 +144,7 @@ describe("edit trace policy", () => {
     expect(() => sanitizeEditTraceEvent({
       ...baseEvent,
       payload: {
-        direction: "NATURAL",
+        direction: "NATURAL_RESCUE",
         [key]: "must-not-ship"
       }
     } as unknown as EditTraceEvent)).toThrow(ZodError);

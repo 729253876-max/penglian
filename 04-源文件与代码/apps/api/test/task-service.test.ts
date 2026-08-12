@@ -588,10 +588,16 @@ describe("TaskService", () => {
       input: structuredClone(portraitInput)
     };
     const firstEvent: EditTraceEvent = {
-      ...providerEvent("PLAN_READY", "PLAN", "portrait.plan.natural", { direction: "NATURAL_RESCUE" }),
       eventId: "event-1",
       taskId: storedTask.taskId,
-      sequence: 1
+      sequence: 1,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
+      copyKey: "portrait.plan.natural",
+      payload: { direction: "NATURAL_RESCUE" }
     };
     await repository.save(storedTask);
     await repository.appendEvent(firstEvent);
