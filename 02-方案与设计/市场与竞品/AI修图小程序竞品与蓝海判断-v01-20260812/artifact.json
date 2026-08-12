@@ -1,0 +1,295 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "AI 修图小程序：不是蓝海，是可验证的细分机会",
+    "description": "基于公开 GitHub 仓库、商业产品官方页面与项目现状形成的竞争判断。",
+    "generatedAt": "2026-08-12T13:00:00Z",
+    "charts": [
+      {
+        "id": "evidence_coverage",
+        "title": "代表性公开证据数量",
+        "subtitle": "本次调研纳入的项目/产品数量；样本非穷尽，不能解释市场规模或份额。",
+        "type": "bar",
+        "dataset": "evidence_coverage",
+        "sourceId": "evidence_coverage_sql",
+        "encodings": {
+          "x": { "field": "category", "type": "nominal", "label": "证据类别" },
+          "y": { "field": "count", "type": "quantitative", "label": "纳入样本数" },
+          "tooltip": [
+            { "field": "meaning", "type": "nominal", "label": "含义" }
+          ]
+        },
+        "yAxisTitle": "纳入样本数",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "github_competitors",
+        "title": "GitHub 公开项目与底层能力",
+        "subtitle": "Stars 为 2026-08-12 调研快照，仅表示开源关注度，不代表市场份额或需求。",
+        "dataset": "github_competitors",
+        "sourceId": "github_competitors_sql",
+        "defaultSort": { "field": "stars", "direction": "desc" },
+        "columns": [
+          { "field": "project", "label": "项目", "type": "text" },
+          { "field": "form", "label": "形态 / 能力", "type": "text" },
+          { "field": "stars", "label": "Stars", "format": "number" },
+          { "field": "competition", "label": "竞争关系", "type": "text" },
+          { "field": "url", "label": "公开地址", "type": "text" }
+        ]
+      },
+      {
+        "id": "commercial_alternatives",
+        "title": "成熟商业替代品",
+        "subtitle": "官方公开页面能够证明功能存在，但不能证明用户偏好、收入或市场份额。",
+        "dataset": "commercial_alternatives",
+        "sourceId": "commercial_alternatives_sql",
+        "columns": [
+          { "field": "product", "label": "产品", "type": "text" },
+          { "field": "capability", "label": "公开能力", "type": "text" },
+          { "field": "threat", "label": "对本项目的威胁", "type": "text" },
+          { "field": "url", "label": "官方页面", "type": "text" }
+        ]
+      },
+      {
+        "id": "market_layers",
+        "title": "竞争层判断",
+        "subtitle": "蓝海判断按能力、场景和渠道拆分，避免把“开源少”误当作“市场空白”。",
+        "dataset": "market_layers",
+        "sourceId": "market_layers_sql",
+        "columns": [
+          { "field": "layer", "label": "竞争层", "type": "text" },
+          { "field": "judgment", "label": "判断", "type": "text" },
+          { "field": "evidence", "label": "主要依据", "type": "text" },
+          { "field": "implication", "label": "项目含义", "type": "text" }
+        ]
+      },
+      {
+        "id": "experiment_gates",
+        "title": "下一阶段 GO / NO_GO 门禁",
+        "subtitle": "沿用项目现有质量与成本门禁，并补齐真实需求与付费验证。",
+        "dataset": "experiment_gates",
+        "sourceId": "experiment_gates_sql",
+        "columns": [
+          { "field": "dimension", "label": "维度", "type": "text" },
+          { "field": "test", "label": "验证方式", "type": "text" },
+          { "field": "gate", "label": "通过条件", "type": "text" },
+          { "field": "decision", "label": "失败动作", "type": "text" }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "research_notes",
+        "label": "GitHub 与商业产品公开调研记录",
+        "path": "source-notes.md"
+      },
+      {
+        "id": "evidence_coverage_sql",
+        "label": "公开证据分类计数查询",
+        "path": "artifact.json"
+      },
+      { "id": "github_competitors_sql", "label": "GitHub 代表性项目整形查询", "path": "artifact.json" },
+      { "id": "commercial_alternatives_sql", "label": "商业替代品整形查询", "path": "artifact.json" },
+      { "id": "market_layers_sql", "label": "竞争层判断整形查询", "path": "artifact.json" },
+      { "id": "experiment_gates_sql", "label": "项目门禁整形查询", "path": "artifact.json" },
+      {
+        "id": "project_gate_plan",
+        "label": "V1 真实质量与成本门禁实施计划",
+        "path": "Project-002/02-方案与设计/实施计划/2026-08-11-V1真实质量与成本门禁实施计划.md"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# AI 修图小程序：不是蓝海，是可验证的细分机会"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **不是蓝海。** 通用 AI 修图、人像增强和老照片恢复已有成熟模型、开源产品和强商业品牌，能力层已经是红海。\n- **GitHub 上已有类似项目。** 微信小程序同形态开源项目稀少但并非不存在；GFPGAN、CodeFormer、restorePhotos 等证明底层能力和 Web 产品实现都已成熟。\n- **仍有一个窄机会。** 本项目可以竞争“微信内的重要照片忠实救片”：强调不换脸、不乱改主体、隐私透明、先预览后付费和低使用摩擦。它是待验证的差异化假设，不是已被证明的蓝海。\n- **下一步应从功能建设转向市场验证。** 暂停泛功能扩张，先用问题访谈、同图盲测、价格实验、真实成本与保存/分享意愿做 GO / NO_GO 决策。"
+      },
+      {
+        "id": "github_finding",
+        "type": "markdown",
+        "body": "## GitHub 已有同类，真正拥挤的是底层能力\n\n微信小程序 + AI 修图的公开仓库数量不多，但已经出现照片修复小程序和综合图片处理小程序。更关键的是，用户并不只在 GitHub 同形态产品之间选择：高关注的人脸修复模型和一键式 Web 产品已经显著降低复制门槛。\n\n**所以 GitHub 的结论不是“没人做”，而是“小程序开源样本少、技术供给非常充足”。** 这意味着渠道形式本身无法构成长期护城河。"
+      },
+      { "id": "evidence_chart", "type": "chart", "chartId": "evidence_coverage", "layout": "full" },
+      { "id": "github_table", "type": "table", "tableId": "github_competitors", "layout": "full" },
+      {
+        "id": "commercial_finding",
+        "type": "markdown",
+        "body": "## 用户已有成熟替代品，竞争范围远大于微信小程序\n\n美图、Remini、Adobe Express、Canva 和 Cutout.pro 已覆盖增强、修复、锐化、去噪、编辑和分享等任务。即使它们不是完全相同的小程序，也会争夺同一笔用户时间和付费预算。\n\n**本项目不适合与成熟产品比功能数量。** 更可行的打法是把一个高情绪价值、低频但重要的任务做得更可信、更轻、更容易在微信内完成。"
+      },
+      { "id": "commercial_table", "type": "table", "tableId": "commercial_alternatives", "layout": "full" },
+      {
+        "id": "market_judgment",
+        "type": "markdown",
+        "body": "## 市场判断：红海中的细分窗口，而非蓝海\n\n“蓝海”至少应同时包含明显未满足需求、较弱替代竞争和可获得的付费空间。当前证据只能支持渠道与工作流存在差异化空间，不能证明需求规模与付费意愿。\n\n**建议竞争市场：普通用户的重要人像救片，而不是专业修图或泛自拍美颜。** 首发只聚焦两类：旅行、家庭、毕业等重要人像的忠实修复，以及轻度老照片修复。背景移除、证件照、电商图和创意生成暂不进入首发范围。"
+      },
+      { "id": "market_table", "type": "table", "tableId": "market_layers", "layout": "full" },
+      {
+        "id": "strengths_weaknesses",
+        "type": "markdown",
+        "body": "## 项目当前优势与短板\n\n**可利用的优势**\n\n- 微信内低摩擦，不要求用户安装新 App。\n- “重要照片、忠实修复”比泛 AI 修图更具体，也更适合建立信任。\n- 已设计私密上传、授权边界、安全文案与真实过程状态。\n- 先预览后付费可降低首次尝试风险。\n- 已有质量、缺陷、竞品偏好、保存分享与贡献毛利门禁。\n\n**必须正视的短板**\n\n- 没有自研模型或独占数据，技术护城河弱。\n- 尚无品牌、用户规模和分发优势，微信入口不等于自然流量。\n- 效果、推理成本、失败重试成本和付费意愿尚未在真实环境证明。\n- 通用功能广度无法与成熟 App 竞争，并受微信平台规则约束。\n- 真实 COS / STS、正式 AppID、真机内存、弱网、Android / iOS 仍未验收，不能宣称可发布。"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## 推荐下一步：两周市场验证 Sprint\n\n1. **问题访谈：** 访谈 10–15 名近期有“重要照片没拍好”经历的目标用户，验证发生频率、现有解决方式、最不能接受的修改和隐私顾虑；不先展示功能清单。\n2. **同图盲测：** 用真实代表性照片对比原图、本项目与 2 个成熟替代品；隐藏品牌，记录偏好、严重缺陷、保存/分享意愿。\n3. **价格与行为实验：** 用可点击原型或真实预览测试“预览后按张付费”与小包次数，不以口头‘愿意’替代点击、留资或支付行为。\n4. **单位经济核算：** 把失败调用、重试、存储、带宽和退款风险全部计入贡献毛利。\n5. **严格决策：** 任一关键门禁失败即 NO_GO 或缩窄场景；只有需求、质量和成本同时过线，才投入 Task 9 真实云与真机验收。"
+      },
+      { "id": "gates_table", "type": "table", "tableId": "experiment_gates", "layout": "full" },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## 仍需回答的问题\n\n- 用户最愿意付费抢救的是旅行人像、家庭纪念、毕业/婚礼次重要照片，还是轻度老照片？\n- 用户对“忠实”的容忍边界是什么：肤色、皱纹、五官、背景分别允许改到什么程度？\n- 先预览后付费的合理价格带和免费额度是多少？\n- 微信生态内的真实竞品曝光、搜索需求和转化成本是多少？\n- 哪一种修复场景能同时满足质量稳定、推理成本可控和足够高的情绪价值？"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and Assumptions\n\n- **总体可信度：Share with caveats / 中等信心。** 当前结论足以决定“先验证、不要继续盲目扩功能”，不足以决定市场规模或商业化成败。\n- GitHub Stars 不是市场份额、活跃用户、收入或需求；中文和微信项目的公开搜索召回也有限。\n- GitHub 匿名公共 API 在调研后段触发速率限制，本次没有改用登录态、Cookie 或 Token，因此同形态仓库清单不是穷尽式结果。\n- 商业产品官方页只能证明功能存在，不能证明用户偏好、市场份额或付费规模。\n- 微信指数、小程序内部竞品、应用商店下载/收入和真实支付数据尚未获取；蓝海与市场规模判断仍需一手行为实验。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-12T13:00:00Z",
+    "status": "partial",
+    "datasets": {
+      "evidence_coverage": [
+        { "category": "底层 / 相邻模型", "count": 5, "meaning": "人脸修复、超分辨率与照片级恢复能力" },
+        { "category": "完整 Web / SaaS", "count": 3, "meaning": "可直接使用或复用的照片修复产品" },
+        { "category": "微信小程序形态", "count": 3, "meaning": "修复、综合处理或头像编辑小程序" },
+        { "category": "成熟商业替代品", "count": 5, "meaning": "争夺同一用户任务与预算的正式产品" }
+      ],
+      "github_competitors": [
+        { "project": "TencentARC/GFPGAN", "form": "人脸修复底层模型", "stars": 37653, "competition": "能力层直接替代 / 上游供给", "url": "https://github.com/TencentARC/GFPGAN" },
+        { "project": "sczhou/CodeFormer", "form": "盲人脸修复底层模型", "stars": 18103, "competition": "能力层直接替代 / 上游供给", "url": "https://github.com/sczhou/CodeFormer" },
+        { "project": "TencentARC/PhotoMaker", "form": "个性化人像生成", "stars": 10095, "competition": "相邻人像能力", "url": "https://github.com/TencentARC/PhotoMaker" },
+        { "project": "XPixelGroup/BasicSR", "form": "图像/视频超分辨率工具箱", "stars": 8364, "competition": "上游基础能力", "url": "https://github.com/XPixelGroup/BasicSR" },
+        { "project": "Fanghua-Yu/SUPIR", "form": "照片级图像恢复", "stars": 5639, "competition": "高质量恢复能力", "url": "https://github.com/Fanghua-Yu/SUPIR" },
+        { "project": "Nutlope/restorePhotos", "form": "完整照片恢复 Web 产品", "stars": 4423, "competition": "产品级直接替代", "url": "https://github.com/Nutlope/restorePhotos" },
+        { "project": "302ai/302_photo_restore", "form": "照片修复 Web 应用", "stars": 25, "competition": "产品模板直接替代", "url": "https://github.com/302ai/302_photo_restore" },
+        { "project": "SamurAIGPT/old-photo-restore", "form": "带账户/积分的修复 SaaS", "stars": 8, "competition": "商业模板直接替代", "url": "https://github.com/SamurAIGPT/old-photo-restore" },
+        { "project": "Yonghui-Lee/profile_photo_editor_weChatApplet", "form": "微信头像编辑小程序", "stars": 4, "competition": "渠道与轻编辑相邻", "url": "https://github.com/Yonghui-Lee/profile_photo_editor_weChatApplet" },
+        { "project": "cl973/image-restoration-agent", "form": "微信小程序 + Flask 照片修复", "stars": 1, "competition": "同形态直接竞品", "url": "https://github.com/cl973/image-restoration-agent" },
+        { "project": "FEliuze/tuying-master-iopain", "form": "小程序图片/视频 AI 处理后端", "stars": 0, "competition": "同渠道综合工具", "url": "https://github.com/FEliuze/tuying-master-iopain" }
+      ],
+      "commercial_alternatives": [
+        { "product": "美图", "capability": "AI 驱动的影像、视频与设计产品矩阵", "threat": "品牌、分发、功能广度和用户习惯均强", "url": "https://www.meitu.com/en/" },
+        { "product": "Remini", "capability": "低质量图片 HD 增强、老照片恢复、AI Photos", "threat": "在人像增强与修复心智上直接竞争", "url": "https://remini.ai/" },
+        { "product": "Adobe Express", "capability": "AI 增强、背景/对象处理、锐化和色彩调整", "threat": "成熟编辑生态与跨端工作流", "url": "https://www.adobe.com/express/feature/image/enhance" },
+        { "product": "Canva", "capability": "上传、编辑、滤镜、调整、设计与分享", "threat": "将修图吸收到完整内容生产流程", "url": "https://www.canva.com/features/photo-editor/" },
+        { "product": "Cutout.pro", "capability": "一键增强、放大、锐化与去噪", "threat": "低学习成本的一键工具直接替代", "url": "https://www.cutout.pro/photo-enhancer-sharpener-upscaler" }
+      ],
+      "market_layers": [
+        { "layer": "通用 AI 修图", "judgment": "红海", "evidence": "成熟商业产品覆盖全面，开源和 API 供给丰富", "implication": "不以功能大全正面竞争" },
+        { "layer": "人像增强 / 老照片恢复", "judgment": "红海", "evidence": "高星模型、完整 Web 产品和知名商业产品均已存在", "implication": "效果本身不是独占优势" },
+        { "layer": "微信小程序渠道", "judgment": "相对稀疏但非蓝海", "evidence": "公开仓库少但并非零，且闭源产品与 App/Web 可跨形态替代", "implication": "低摩擦是入口优势，不是护城河" },
+        { "layer": "微信内重要照片忠实救片", "judgment": "待验证的细分机会", "evidence": "定位、隐私、预览后付费可形成工作流差异，但尚无真实需求与付费数据", "implication": "以两周实验决定是否继续投入" }
+      ],
+      "experiment_gates": [
+        { "dimension": "主体忠实", "test": "代表性样本人工盲评", "gate": "身份 / 主体结构通过率 ≥95%", "decision": "失败则 NO_GO 或收窄场景" },
+        { "dimension": "严重缺陷", "test": "变形、错脸、伪影审查", "gate": "严重缺陷率 ≤5%", "decision": "失败则 NO_GO" },
+        { "dimension": "用户偏好", "test": "原图 / 本项目 / 竞品同图盲测", "gate": "相对原图偏好 ≥65%；相对竞品偏好 ≥45%", "decision": "失败则调整价值主张或模型" },
+        { "dimension": "行为价值", "test": "真实预览后的保存 / 分享选择", "gate": "愿意保存或分享 ≥60%", "decision": "失败则停止扩功能" },
+        { "dimension": "付费需求", "test": "价格页点击、留资或小额支付实验", "gate": "实验前设定最低转化阈值；不用口头意愿代替行为", "decision": "无行为信号则 NO_GO" },
+        { "dimension": "单位经济", "test": "计入成功、失败、重试、存储、带宽与退款风险", "gate": "贡献毛利为正且对失败率敏感性可接受", "decision": "失败则换模型、定价或停止" }
+      ]
+    },
+    "accessIssues": [
+      {
+        "id": "market_demand_unverified",
+        "dataset": "market_demand",
+        "message": "尚无微信指数、小程序内部竞品、下载、收入或真实付费行为数据，不能据此估算市场规模。"
+      },
+      {
+        "id": "github_search_partial",
+        "dataset": "github_competitors",
+        "message": "GitHub 匿名 API 触发速率限制，仓库搜索不是穷尽式清单。"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "evidence_coverage_sql",
+      "label": "公开证据分类计数查询",
+      "query": {
+        "engine": "duckdb-compatible-values",
+        "language": "sql",
+        "description": "将 source-notes.md 中已核对的代表性公开证据按竞争层分类计数；这是报告图表的数据整形查询，不是市场数据库。",
+        "sql": "SELECT category, count, meaning FROM (VALUES ('底层 / 相邻模型', 5, '人脸修复、超分辨率与照片级恢复能力'), ('完整 Web / SaaS', 3, '可直接使用或复用的照片修复产品'), ('微信小程序形态', 3, '修复、综合处理或头像编辑小程序'), ('成熟商业替代品', 5, '争夺同一用户任务与预算的正式产品')) AS evidence(category, count, meaning)"
+      }
+    },
+    {
+      "id": "research_notes",
+      "label": "GitHub 与商业产品公开调研记录",
+      "query": {
+        "engine": "public-web",
+        "language": "text",
+        "description": "2026-08-12 使用 GitHub 公共只读 API、公开仓库页面和商业产品官方页面整理；未使用登录态、Cookie 或 Token。",
+        "executed_at": "2026-08-12T13:00:00Z"
+      }
+    },
+    {
+      "id": "github_competitors_sql",
+      "label": "GitHub 代表性项目整形查询",
+      "query": {
+        "engine": "duckdb-compatible-values",
+        "language": "sql",
+        "description": "将 source-notes.md 中逐项核对的 GitHub 公开仓库整形成报告表格；VALUES 是可复现的数据整形，不是市场数据库。",
+        "sql": "SELECT project, form, stars, competition, url FROM (VALUES ('TencentARC/GFPGAN','人脸修复底层模型',37653,'能力层直接替代 / 上游供给','https://github.com/TencentARC/GFPGAN'),('sczhou/CodeFormer','盲人脸修复底层模型',18103,'能力层直接替代 / 上游供给','https://github.com/sczhou/CodeFormer'),('TencentARC/PhotoMaker','个性化人像生成',10095,'相邻人像能力','https://github.com/TencentARC/PhotoMaker'),('XPixelGroup/BasicSR','图像/视频超分辨率工具箱',8364,'上游基础能力','https://github.com/XPixelGroup/BasicSR'),('Fanghua-Yu/SUPIR','照片级图像恢复',5639,'高质量恢复能力','https://github.com/Fanghua-Yu/SUPIR'),('Nutlope/restorePhotos','完整照片恢复 Web 产品',4423,'产品级直接替代','https://github.com/Nutlope/restorePhotos'),('302ai/302_photo_restore','照片修复 Web 应用',25,'产品模板直接替代','https://github.com/302ai/302_photo_restore'),('SamurAIGPT/old-photo-restore','带账户/积分的修复 SaaS',8,'商业模板直接替代','https://github.com/SamurAIGPT/old-photo-restore'),('Yonghui-Lee/profile_photo_editor_weChatApplet','微信头像编辑小程序',4,'渠道与轻编辑相邻','https://github.com/Yonghui-Lee/profile_photo_editor_weChatApplet'),('cl973/image-restoration-agent','微信小程序 + Flask 照片修复',1,'同形态直接竞品','https://github.com/cl973/image-restoration-agent'),('FEliuze/tuying-master-iopain','小程序图片/视频 AI 处理后端',0,'同渠道综合工具','https://github.com/FEliuze/tuying-master-iopain')) AS t(project,form,stars,competition,url)"
+      }
+    },
+    {
+      "id": "commercial_alternatives_sql",
+      "label": "商业替代品整形查询",
+      "query": {
+        "engine": "duckdb-compatible-values",
+        "language": "sql",
+        "description": "将 source-notes.md 中核对的商业产品官方公开能力整形成报告表格。",
+        "sql": "SELECT product, capability, threat, url FROM (VALUES ('美图','AI 驱动的影像、视频与设计产品矩阵','品牌、分发、功能广度和用户习惯均强','https://www.meitu.com/en/'),('Remini','低质量图片 HD 增强、老照片恢复、AI Photos','在人像增强与修复心智上直接竞争','https://remini.ai/'),('Adobe Express','AI 增强、背景/对象处理、锐化和色彩调整','成熟编辑生态与跨端工作流','https://www.adobe.com/express/feature/image/enhance'),('Canva','上传、编辑、滤镜、调整、设计与分享','将修图吸收到完整内容生产流程','https://www.canva.com/features/photo-editor/'),('Cutout.pro','一键增强、放大、锐化与去噪','低学习成本的一键工具直接替代','https://www.cutout.pro/photo-enhancer-sharpener-upscaler')) AS t(product,capability,threat,url)"
+      }
+    },
+    {
+      "id": "market_layers_sql",
+      "label": "竞争层判断整形查询",
+      "query": {
+        "engine": "duckdb-compatible-values",
+        "language": "sql",
+        "description": "把公开证据与项目定位拆分为四个竞争层；判断属于分析解释，不是市场份额测量。",
+        "sql": "SELECT layer, judgment, evidence, implication FROM (VALUES ('通用 AI 修图','红海','成熟商业产品覆盖全面，开源和 API 供给丰富','不以功能大全正面竞争'),('人像增强 / 老照片恢复','红海','高星模型、完整 Web 产品和知名商业产品均已存在','效果本身不是独占优势'),('微信小程序渠道','相对稀疏但非蓝海','公开仓库少但并非零，且闭源产品与 App/Web 可跨形态替代','低摩擦是入口优势，不是护城河'),('微信内重要照片忠实救片','待验证的细分机会','定位、隐私、预览后付费可形成工作流差异，但尚无真实需求与付费数据','以两周实验决定是否继续投入')) AS t(layer,judgment,evidence,implication)"
+      }
+    },
+    {
+      "id": "experiment_gates_sql",
+      "label": "项目门禁整形查询",
+      "query": {
+        "engine": "duckdb-compatible-values",
+        "language": "sql",
+        "description": "将 Project-002 已批准门禁与新增市场行为门禁整形成决策表。",
+        "sql": "SELECT dimension, test, gate, decision FROM (VALUES ('主体忠实','代表性样本人工盲评','身份 / 主体结构通过率 ≥95%','失败则 NO_GO 或收窄场景'),('严重缺陷','变形、错脸、伪影审查','严重缺陷率 ≤5%','失败则 NO_GO'),('用户偏好','原图 / 本项目 / 竞品同图盲测','相对原图偏好 ≥65%；相对竞品偏好 ≥45%','失败则调整价值主张或模型'),('行为价值','真实预览后的保存 / 分享选择','愿意保存或分享 ≥60%','失败则停止扩功能'),('付费需求','价格页点击、留资或小额支付实验','实验前设定最低转化阈值；不用口头意愿代替行为','无行为信号则 NO_GO'),('单位经济','计入成功、失败、重试、存储、带宽与退款风险','贡献毛利为正且对失败率敏感性可接受','失败则换模型、定价或停止')) AS t(dimension,test,gate,decision)"
+      }
+    },
+    {
+      "id": "project_gate_plan",
+      "label": "V1 真实质量与成本门禁实施计划",
+      "query": {
+        "engine": "project-document",
+        "language": "markdown",
+        "description": "Project-002 已批准的质量、偏好、保存分享与贡献毛利门禁。",
+        "executed_at": "2026-08-12T13:00:00Z"
+      }
+    }
+  ],
+  "package_info": {
+    "root": "AI修图小程序竞品与蓝海判断-v01-20260812",
+    "manifestPath": "artifact.json",
+    "snapshotPath": "artifact.json"
+  }
+}
