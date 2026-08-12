@@ -56,6 +56,14 @@ class ThrowingQualityGate implements PortraitQualityGate {
   }
 }
 
+class MalformedResolvedQualityGate implements PortraitQualityGate {
+  public constructor(private readonly result: unknown) {}
+
+  public async evaluate(): Promise<QualityGateResult> {
+    return this.result as QualityGateResult;
+  }
+}
+
 const approvedAsset: PortraitAsset = {
   assetId: "approved-portrait-1",
   userId: "user-1",
@@ -323,6 +331,58 @@ describe("TaskService", () => {
       evidenceSource: "QUALITY_GATE",
       payload: { code: "FIDELITY_GATE_FAILED" }
     });
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["a non-boolean discriminant", { passed: "yes", checks: ["IDENTITY"] }],
+    ["an unknown check", { passed: true, checks: ["UNKNOWN"] }],
+    ["duplicate checks", { passed: true, checks: ["IDENTITY", "IDENTITY"] }],
+    ["empty checks", { passed: true, checks: [] }],
+    ["failedChecks on a passing result", {
+      passed: true,
+      checks: ["IDENTITY"],
+      failedChecks: ["IDENTITY"]
+    }],
+    ["missing failedChecks", { passed: false, checks: ["IDENTITY"] }],
+    ["empty failedChecks", { passed: false, checks: ["IDENTITY"], failedChecks: [] }],
+    ["duplicate failedChecks", {
+      passed: false,
+      checks: ["IDENTITY"],
+      failedChecks: ["IDENTITY", "IDENTITY"]
+    }],
+    ["a failed check outside checks", {
+      passed: false,
+      checks: ["IDENTITY"],
+      failedChecks: ["STRUCTURE"]
+    }],
+    ["an extra key", { passed: true, checks: ["IDENTITY"], raw: "must-not-ship" }]
+  ])("fails closed when the quality gate resolves %s", async (_name, malformed) => {
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new CountingImageProvider(),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new MalformedResolvedQualityGate(malformed)
+    );
+    const created = await service.create(userId, portraitInput);
+
+    await expect(service.confirmAndRunPreview(userId, created.taskId)).resolves.toMatchObject({
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    });
+    const finished = await service.get(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+    expect(finished.previewUrl).toBeUndefined();
+    expect(events.at(-1)).toMatchObject({
+      type: "TASK_FAILED",
+      evidenceSource: "QUALITY_GATE",
+      payload: { code: "FIDELITY_GATE_FAILED" }
+    });
+    expect(events.some((event) => event.type === "PREVIEW_READY")).toBe(false);
   });
 
   it("lets a valid non-demo candidate reach the default fail-closed gate", async () => {

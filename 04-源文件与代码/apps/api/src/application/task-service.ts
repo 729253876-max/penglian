@@ -27,7 +27,9 @@ import { PortraitPlanService } from "./portrait-plan-service.js";
 import {
   DeterministicPortraitQualityGate,
   FailClosedPortraitQualityGate,
-  type PortraitQualityGate
+  type FidelityCheck,
+  type PortraitQualityGate,
+  type QualityGateResult
 } from "./portrait-quality-gate.js";
 
 export interface StoredTask extends TaskSnapshot {
@@ -93,6 +95,14 @@ const permittedProviderSequence: readonly ProviderEventRule[] = [
   ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
   ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"]
 ];
+
+const fidelityChecks = new Set<FidelityCheck>([
+  "FACE_COUNT",
+  "IDENTITY",
+  "STRUCTURE",
+  "NON_TARGET_REGION",
+  "ARTIFACTS"
+]);
 
 export class TaskService {
   private readonly qualityGate: PortraitQualityGate;
@@ -275,27 +285,44 @@ export class TaskService {
         copyKey: "quality.started",
         payload: {}
       });
-      let quality;
+      let quality: QualityGateResult;
+      let qualityEvent: ProviderEvent;
       try {
-        quality = await this.qualityGate.evaluate({
-          candidateAssetId: candidate.candidateAssetId,
-          watermarkedPreviewUrl: candidate.watermarkedPreviewUrl,
-          direction: (task.input as PortraitTaskInput).direction
-        });
+        quality = this.assertValidQualityGateResult(
+          await this.qualityGate.evaluate({
+            candidateAssetId: candidate.candidateAssetId,
+            watermarkedPreviewUrl: candidate.watermarkedPreviewUrl,
+            direction: (task.input as PortraitTaskInput).direction
+          })
+        );
+        qualityEvent = quality.passed
+          ? {
+              type: "QUALITY_CHECK_PASSED",
+              phase: "QUALITY",
+              occurredAt: occurredAt(this.clock),
+              visibility: "PREVIEW",
+              evidenceSource: "QUALITY_GATE",
+              copyKey: "quality.fidelity.passed",
+              payload: { checks: quality.checks }
+            }
+          : {
+              type: "QUALITY_CHECK_FAILED",
+              phase: "QUALITY",
+              occurredAt: occurredAt(this.clock),
+              visibility: "PREVIEW",
+              evidenceSource: "QUALITY_GATE",
+              copyKey: "quality.fidelity.failed",
+              payload: {
+                checks: quality.checks,
+                failedChecks: quality.failedChecks
+              }
+            };
       } catch {
         await this.failTask(task, "FIDELITY_GATE_FAILED", "QUALITY_GATE");
         return this.snapshot(task);
       }
       if (quality.passed) {
-        await this.append(task, {
-          type: "QUALITY_CHECK_PASSED",
-          phase: "QUALITY",
-          occurredAt: occurredAt(this.clock),
-          visibility: "PREVIEW",
-          evidenceSource: "QUALITY_GATE",
-          copyKey: "quality.fidelity.passed",
-          payload: { checks: quality.checks }
-        });
+        await this.append(task, qualityEvent);
         await this.append(task, {
           type: "PREVIEW_READY",
           phase: "DELIVERY",
@@ -311,15 +338,7 @@ export class TaskService {
         return this.snapshot(task);
       }
 
-      await this.append(task, {
-        type: "QUALITY_CHECK_FAILED",
-        phase: "QUALITY",
-        occurredAt: occurredAt(this.clock),
-        visibility: "PREVIEW",
-        evidenceSource: "QUALITY_GATE",
-        copyKey: "quality.fidelity.failed",
-        payload: { checks: quality.checks, failedChecks: quality.failedChecks }
-      });
+      await this.append(task, qualityEvent);
       if (attempt === 1) {
         task.status = transition(task.status, "PROCESSING");
         await this.repository.save(task);
@@ -417,6 +436,51 @@ export class TaskService {
     const actualKeys = Reflect.ownKeys(value);
     return actualKeys.length === expectedKeys.length &&
       expectedKeys.every((key) => Object.hasOwn(value, key));
+  }
+
+  private assertValidQualityGateResult(value: unknown): QualityGateResult {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      !("passed" in value) ||
+      typeof value.passed !== "boolean"
+    ) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+
+    const expectedKeys = value.passed
+      ? ["passed", "checks"]
+      : ["passed", "checks", "failedChecks"];
+    if (!this.hasExactOwnKeys(value, expectedKeys)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+
+    const checks = (value as { checks?: unknown }).checks;
+    if (!this.isValidUniqueCheckList(checks)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    if (value.passed) {
+      return { passed: true, checks };
+    }
+
+    const failedChecks = (value as { failedChecks?: unknown }).failedChecks;
+    if (
+      !this.isValidUniqueCheckList(failedChecks) ||
+      !failedChecks.every((check) => checks.includes(check))
+    ) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    return { passed: false, checks, failedChecks };
+  }
+
+  private isValidUniqueCheckList(value: unknown): value is FidelityCheck[] {
+    return Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((check): check is FidelityCheck =>
+        typeof check === "string" && fidelityChecks.has(check as FidelityCheck)
+      ) &&
+      new Set(value).size === value.length;
   }
 
   private async failTask(
