@@ -100,6 +100,7 @@ export const EditTraceCopyKeySchema = z.enum([
   "portrait.diagnosis.light",
   "portrait.protection.recorded",
   "portrait.plan.natural",
+  "portrait.plan.clear",
   "portrait.plan.selected",
   "portrait.stage.retouch.started",
   "portrait.parameter.direction",
@@ -146,12 +147,13 @@ const EventIdentityShape = {
   visibility: EditTraceVisibilitySchema
 };
 
-export const EditTraceEventSchema = z.discriminatedUnion("type", [
+export const EditTraceEventSchema = z.union([
   z.object({ ...EventIdentityShape, type: z.literal("ASSET_APPROVED"), phase: z.literal("UPLOAD"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("upload.asset.approved"), payload: AssetApprovedPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("DIAGNOSIS_STARTED"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.diagnosis.started"), payload: EmptyPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("DIAGNOSIS_FINDING"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.diagnosis.light"), payload: FindingPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("PROTECTION_RECORDED"), phase: z.literal("DIAGNOSIS"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.protection.recorded"), payload: ProtectionPayloadSchema }).strict(),
-  z.object({ ...EventIdentityShape, type: z.literal("PLAN_READY"), phase: z.literal("PLAN"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.plan.natural"), payload: DirectionPayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PLAN_READY"), phase: z.literal("PLAN"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.plan.natural"), payload: z.object({ direction: z.literal("NATURAL_RESCUE") }).strict() }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("PLAN_READY"), phase: z.literal("PLAN"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.plan.clear"), payload: z.object({ direction: z.literal("CLEAR_RESCUE") }).strict() }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("PLAN_SELECTED"), phase: z.literal("PLAN"), evidenceSource: z.literal("USER_SELECTION"), copyKey: z.literal("portrait.plan.selected"), payload: DirectionPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("STAGE_STARTED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("PROVIDER_RECEIPT"), copyKey: z.literal("portrait.stage.retouch.started"), payload: StagePayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("PARAM_DIRECTION_APPLIED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("PROVIDER_RECEIPT"), copyKey: z.literal("portrait.parameter.direction"), payload: ParameterPayloadSchema }).strict(),

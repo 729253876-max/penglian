@@ -18,6 +18,21 @@ const legalEvent = {
 };
 
 describe("mini-program runtime contracts", () => {
+  it("accepts only the copy key paired with each ready plan direction", () => {
+    const clearPlan = {
+      ...legalEvent,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      copyKey: "portrait.plan.clear",
+      payload: { direction: "CLEAR_RESCUE" }
+    };
+    expect(parseEditTraceEvent(clearPlan)).toEqual(clearPlan);
+    expect(() => parseEditTraceEvent({
+      ...clearPlan,
+      copyKey: "portrait.plan.natural"
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
   it("parses a legal truthful trace event", () => {
     expect(parseEditTraceEvent(legalEvent)).toEqual(legalEvent);
   });

@@ -131,6 +131,35 @@ const traceWithMismatchedDiscriminants: EditTraceEvent = {
 void traceWithMismatchedDiscriminants;
 
 describe("task contracts", () => {
+  it("binds each plan direction to its own truthful copy key", () => {
+    const base = {
+      eventId: "evt-plan-direction",
+      taskId: "task-1",
+      sequence: 1,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK"
+    };
+
+    expect(EditTraceEventSchema.safeParse({
+      ...base,
+      copyKey: "portrait.plan.clear",
+      payload: { direction: "CLEAR_RESCUE" }
+    }).success).toBe(true);
+    expect(EditTraceEventSchema.safeParse({
+      ...base,
+      copyKey: "portrait.plan.natural",
+      payload: { direction: "CLEAR_RESCUE" }
+    }).success).toBe(false);
+    expect(EditTraceEventSchema.safeParse({
+      ...base,
+      copyKey: "portrait.plan.clear",
+      payload: { direction: "NATURAL_RESCUE" }
+    }).success).toBe(false);
+  });
+
   it("accepts a faithful portrait task", () => {
     expect(CreateTaskInputSchema.parse({
       tool: "PORTRAIT_RETOUCH",

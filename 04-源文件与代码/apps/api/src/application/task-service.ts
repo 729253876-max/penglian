@@ -135,6 +135,17 @@ export class TaskService {
     const diagnosis = await this.diagnosisService.diagnose(asset);
     const naturalPlan = this.planService.plan(diagnosis, "NATURAL_RESCUE");
     const clearPlan = this.planService.plan(diagnosis, "CLEAR_RESCUE");
+    const selectedPlan = capturedInput.direction === "CLEAR_RESCUE"
+      ? clearPlan
+      : naturalPlan;
+    const normalizedInput: CreateTaskInput = {
+      ...capturedInput,
+      direction: selectedPlan.direction,
+      parameters: {
+        naturalness: selectedPlan.naturalness,
+        detailLevel: selectedPlan.detailLevel
+      }
+    };
 
     const task: StoredTask = {
       taskId: randomUUID(),
@@ -142,9 +153,9 @@ export class TaskService {
       status: "REVIEWING",
       tool: capturedInput.tool,
       lastSequence: 0,
-      input: capturedInput,
+      input: normalizedInput,
       diagnosis: structuredClone(diagnosis),
-      selectedDirection: "NATURAL_RESCUE"
+      selectedDirection: selectedPlan.direction
     };
     await this.repository.save(task);
 
@@ -204,7 +215,7 @@ export class TaskService {
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
       evidenceSource: "SYSTEM_CHECK",
-      copyKey: "portrait.plan.natural",
+      copyKey: "portrait.plan.clear",
       payload: { direction: clearPlan.direction }
     });
     await this.append(task, {
@@ -214,7 +225,7 @@ export class TaskService {
       visibility: "PREVIEW",
       evidenceSource: "USER_SELECTION",
       copyKey: "portrait.plan.selected",
-      payload: { direction: naturalPlan.direction }
+      payload: { direction: selectedPlan.direction }
     });
     task.status = transition(task.status, "AWAITING_CONFIRMATION");
     await this.repository.save(task);

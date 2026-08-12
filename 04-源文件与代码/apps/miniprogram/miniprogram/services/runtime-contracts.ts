@@ -60,7 +60,7 @@ function isEnumArray(value: unknown, allowed: ReadonlySet<string>, allowEmpty = 
 
 type EventRule = {
   phase: EventPhase;
-  copyKey: string;
+  copyKey: string | readonly string[];
   evidenceSources: readonly string[];
   validatePayload: (value: unknown) => boolean;
 };
@@ -85,7 +85,7 @@ const eventRules: Record<EventType, EventRule> = {
       isEnumArray(value.protections, protections)
   },
   PLAN_READY: {
-    phase: "PLAN", copyKey: "portrait.plan.natural", evidenceSources: ["SYSTEM_CHECK"],
+    phase: "PLAN", copyKey: ["portrait.plan.natural", "portrait.plan.clear"], evidenceSources: ["SYSTEM_CHECK"],
     validatePayload: directionPayload
   },
   PLAN_SELECTED: {
@@ -180,7 +180,16 @@ export function parseEditTraceEvent(value: unknown): EditTraceEvent {
     throw new Error("API_RESPONSE_INVALID");
   }
   const rule = eventRules[value.type as EventType];
-  if (value.phase !== rule.phase || value.copyKey !== rule.copyKey ||
+  const copyKeyAllowed = Array.isArray(rule.copyKey)
+    ? rule.copyKey.includes(value.copyKey)
+    : value.copyKey === rule.copyKey;
+  const planDirection = isRecord(value.payload) ? value.payload.direction : undefined;
+  const planPairAllowed = value.type !== "PLAN_READY" ||
+    (value.copyKey === "portrait.plan.natural" &&
+      planDirection === "NATURAL_RESCUE") ||
+    (value.copyKey === "portrait.plan.clear" &&
+      planDirection === "CLEAR_RESCUE");
+  if (value.phase !== rule.phase || !copyKeyAllowed || !planPairAllowed ||
       !rule.evidenceSources.includes(value.evidenceSource) || !rule.validatePayload(value.payload)) {
     throw new Error("API_RESPONSE_INVALID");
   }

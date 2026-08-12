@@ -211,6 +211,37 @@ function providerEvent(
   };
 }
 
+class RecordingDirectionImageProvider implements ImageProvider {
+  public input: CreateTaskInput | undefined;
+
+  public constructor(
+    private readonly direction: "NATURAL_RESCUE" | "CLEAR_RESCUE"
+  ) {}
+
+  public async runPreview(input: CreateTaskInput): Promise<ProviderRunResult> {
+    this.input = structuredClone(input);
+    return {
+      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+      events: [
+        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+        providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
+          direction: this.direction,
+          level: "MODERATE"
+        }),
+        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
+        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+        }),
+        providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
+          watermarked: true,
+          downloadable: false
+        })
+      ]
+    };
+  }
+}
+
 const creationEventTypes: EditTraceEvent["type"][] = [
   "ASSET_APPROVED",
   "DIAGNOSIS_STARTED",
@@ -270,6 +301,48 @@ describe("TaskService", () => {
         { direction: "NATURAL_RESCUE" },
         { direction: "CLEAR_RESCUE" }
       ]);
+  });
+
+  it.each([
+    ["NATURAL_RESCUE" as const, 85, 35],
+    ["CLEAR_RESCUE" as const, 75, 60]
+  ])("normalizes a real %s request and keeps selection, events, and provider input aligned", async (
+    direction,
+    naturalness,
+    detailLevel
+  ) => {
+    const repository = new InMemoryTaskRepository();
+    const provider = new RecordingDirectionImageProvider(direction);
+    const service = new TaskService(
+      repository,
+      provider,
+      new FixedPortraitAssetReader(approvedAsset)
+    );
+    const input: CreateTaskInput = {
+      ...approvedPortraitInput,
+      direction,
+      parameters: { naturalness: 3, detailLevel: 99 }
+    };
+
+    const created = await service.create("user-1", input);
+    const creationEvents = await service.getEvents("user-1", created.taskId, 0);
+
+    expect(created.selectedDirection).toBe(direction);
+    expect(creationEvents.filter((event) => event.type === "PLAN_READY")).toMatchObject([
+      { copyKey: "portrait.plan.natural", payload: { direction: "NATURAL_RESCUE" } },
+      { copyKey: "portrait.plan.clear", payload: { direction: "CLEAR_RESCUE" } }
+    ]);
+    expect(creationEvents.at(-1)).toMatchObject({
+      type: "PLAN_SELECTED",
+      payload: { direction }
+    });
+
+    await service.confirmAndRunPreview("user-1", created.taskId);
+    expect(provider.input).toEqual({
+      ...approvedPortraitInput,
+      direction,
+      parameters: { naturalness, detailLevel }
+    });
   });
 
   it("emits truthful, continuously sequenced events and produces a watermarked preview", async () => {

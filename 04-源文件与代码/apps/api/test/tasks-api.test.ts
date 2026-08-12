@@ -56,6 +56,25 @@ class ThrowingTaskService implements TaskApiService {
 }
 
 describe("tasks API", () => {
+  it.each([
+    ["missing", new Error("ASSET_NOT_APPROVED")],
+    ["cross-user", new Error("ASSET_NOT_APPROVED")]
+  ])("returns a stable client error for a %s approved asset lookup", async (_case, error) => {
+    const app = buildTaskApp({ service: new ThrowingTaskService(error) });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks",
+        payload: portraitInput
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({ code: "ASSET_NOT_APPROVED" });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates a portrait preview task", async () => {
     const app = buildTaskApp();
     try {

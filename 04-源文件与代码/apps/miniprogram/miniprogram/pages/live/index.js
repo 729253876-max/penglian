@@ -14,6 +14,7 @@ const copy = {
     "portrait.diagnosis.light": "检测到面部暗部与背景高光差异",
     "portrait.protection.recorded": "已记录人物与构图保护边界",
     "portrait.plan.natural": "已制定保留真实肤质的自然精修方案",
+    "portrait.plan.clear": "已制定增强清晰度并保持人物真实的救片方案",
     "portrait.plan.selected": "已选择忠实救片方向",
     "portrait.stage.retouch.started": "正在恢复人物局部光影与肤质层次",
     "portrait.parameter.direction": "已应用适中的自然精修方向",
