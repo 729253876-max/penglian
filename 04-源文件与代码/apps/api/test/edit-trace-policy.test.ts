@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 import type { EditTraceEvent } from "@photo-ai/contracts";
-import { sanitizeEditTraceEvent } from "../src/domain/edit-trace-policy.js";
+import {
+  sanitizeEditTraceEvent,
+  sanitizeProviderReceiptEvent
+} from "../src/domain/edit-trace-policy.js";
 
 const baseEvent = {
   eventId: "evt-1",
@@ -49,6 +52,30 @@ describe("edit trace policy", () => {
 
     expect(sanitizeEditTraceEvent(stageEvent)).toEqual(stageEvent);
     expect(sanitizeEditTraceEvent(parameterEvent)).toEqual(parameterEvent);
+  });
+
+  it("limits provider authority to provider receipt events", () => {
+    const providerStage = {
+      ...baseEvent,
+      type: "STAGE_STARTED" as const,
+      phase: "RETOUCH",
+      evidenceSource: "PROVIDER_RECEIPT" as const,
+      copyKey: "portrait.stage.retouch.started",
+      payload: { stage: "LOCAL_LIGHT_AND_SKIN" as const }
+    };
+    const qualityResult = {
+      ...baseEvent,
+      type: "QUALITY_CHECK_PASSED" as const,
+      phase: "QUALITY",
+      evidenceSource: "QUALITY_GATE" as const,
+      copyKey: "quality.fidelity.passed",
+      payload: { checks: ["IDENTITY" as const] }
+    };
+
+    expect(sanitizeProviderReceiptEvent(providerStage)).toEqual(providerStage);
+    expect(() => sanitizeProviderReceiptEvent(qualityResult)).toThrow(
+      "TRACE_AUTHORITY_INVALID"
+    );
   });
 
   it("rejects explicit hidden-reasoning and provider-secret payload fields", () => {

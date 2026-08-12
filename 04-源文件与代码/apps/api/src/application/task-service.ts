@@ -4,7 +4,11 @@ import type {
   EditTraceEvent,
   TaskSnapshot
 } from "@photo-ai/contracts";
-import { sanitizeEditTraceEvent } from "../domain/edit-trace-policy.js";
+import {
+  sanitizeEditTraceEvent,
+  sanitizeProviderReceiptEvent
+} from "../domain/edit-trace-policy.js";
+import { RepairJournalService } from "./repair-journal-service.js";
 import {
   occurredAt,
   systemClock,
@@ -84,18 +88,6 @@ export class StageADemoAssetReader implements PortraitAssetReader {
 
 type ProviderEvent = Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">;
 
-type ProviderEventRule = readonly [
-  ProviderEvent["type"],
-  string,
-  string
-];
-
-const permittedProviderSequence: readonly ProviderEventRule[] = [
-  ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
-  ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
-  ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"]
-];
-
 const fidelityChecks = new Set<FidelityCheck>([
   "FACE_COUNT",
   "IDENTITY",
@@ -107,6 +99,7 @@ const fidelityChecks = new Set<FidelityCheck>([
 export class TaskService {
   private readonly qualityGate: PortraitQualityGate;
   private readonly usesStageADemoProfile: boolean;
+  private readonly repairJournal = new RepairJournalService();
 
   public constructor(
     private readonly repository: TaskRepository,
@@ -265,7 +258,7 @@ export class TaskService {
           attempt
         );
         this.assertPermittedProviderCandidate(candidate, task.input);
-        const receipts = this.sanitizeProviderEventBatch(task, candidate.receipts);
+        const receipts = await this.sanitizeProviderEventBatch(task, candidate.receipts);
         for (const receipt of receipts) {
           await this.appendSanitized(task, receipt);
         }
@@ -391,6 +384,7 @@ export class TaskService {
       typeof result.watermarkedPreviewUrl !== "string" ||
       result.watermarkedPreviewUrl.length === 0 ||
       !Array.isArray(result.receipts) ||
+      result.receipts.length === 0 ||
       input.tool !== "PORTRAIT_RETOUCH"
     ) {
       throw new Error("INVALID_PROVIDER_RESULT");
@@ -403,29 +397,13 @@ export class TaskService {
       }
     }
 
-    const expectedSequence =
-      permittedProviderSequence.length === result.receipts.length &&
-      permittedProviderSequence.every(([type, phase, copyKey], index) => {
-        const event = result.receipts[index];
-        return event?.type === type &&
-          event.phase === phase &&
-          event.copyKey === copyKey &&
-          event.visibility === "PREVIEW" &&
-          event.evidenceSource === "PROVIDER_RECEIPT";
-      });
-
-    if (!expectedSequence) {
-      throw new Error("INVALID_PROVIDER_RESULT");
-    }
-
-    const parameterEvent = result.receipts.find(
+    for (const parameterEvent of result.receipts.filter(
       (event) => event.type === "PARAM_DIRECTION_APPLIED"
-    );
-    const parameterPayload = parameterEvent?.payload as
-      | Record<string, unknown>
-      | undefined;
-    if (parameterEvent && parameterPayload?.direction !== input.direction) {
-      throw new Error("INVALID_PROVIDER_RESULT");
+    )) {
+      const parameterPayload = parameterEvent.payload as Record<string, unknown>;
+      if (parameterPayload.direction !== input.direction) {
+        throw new Error("INVALID_PROVIDER_RESULT");
+      }
     }
 
   }
@@ -565,22 +543,50 @@ export class TaskService {
     });
   }
 
-  private sanitizeProviderEventBatch(
+  private async sanitizeProviderEventBatch(
     task: StoredTask,
     events: ProviderEvent[]
-  ): EditTraceEvent[] {
-    return events.map((event, index) => sanitizeEditTraceEvent({
+  ): Promise<EditTraceEvent[]> {
+    const sanitized = events.map((event, index) => sanitizeProviderReceiptEvent({
       ...event,
       eventId: randomUUID(),
       taskId: task.taskId,
       sequence: task.lastSequence + index + 1
     }));
+    const previewHistory = await this.repository.eventsAfter(
+      task.userId,
+      task.taskId,
+      0
+    );
+    for (const event of sanitized) {
+      this.repairJournal.validateNext(previewHistory, event);
+      previewHistory.push(event);
+    }
+    this.repairJournal.validateNext(previewHistory, sanitizeEditTraceEvent({
+      type: "QUALITY_CHECK_STARTED",
+      phase: "QUALITY",
+      occurredAt: occurredAt(this.clock),
+      visibility: "PREVIEW",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.started",
+      payload: {},
+      eventId: randomUUID(),
+      taskId: task.taskId,
+      sequence: task.lastSequence + sanitized.length + 1
+    }));
+    return sanitized;
   }
 
   private async appendSanitized(
     task: StoredTask,
     event: EditTraceEvent
   ): Promise<void> {
+    const history = await this.repository.eventsAfter(
+      task.userId,
+      task.taskId,
+      0
+    );
+    this.repairJournal.validateNext(history, event);
     await this.repository.appendEvent(event);
     task.lastSequence = event.sequence;
     await this.repository.save(task);

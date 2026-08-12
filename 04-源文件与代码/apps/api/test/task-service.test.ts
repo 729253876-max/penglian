@@ -219,6 +219,16 @@ function providerEvent(
   };
 }
 
+class AttemptResultImageProvider implements ImageProvider {
+  public constructor(private readonly results: ProviderCandidate[]) {}
+
+  public async runPreview(): Promise<ProviderCandidate> {
+    const result = this.results.shift();
+    if (!result) throw new Error("missing provider fixture");
+    return result;
+  }
+}
+
 class RecordingDirectionImageProvider implements ImageProvider {
   public input: CreateTaskInput | undefined;
 
@@ -879,6 +889,161 @@ describe("TaskService", () => {
     ]);
     expect(repository.savedStatuses).toContain("QUALITY_CHECKING");
     expect(repository.savedStatuses).toContain("PROCESSING");
+  });
+
+  it("accepts a legal provider batch without requiring the old fixed three-event sequence", async () => {
+    const result = successfulProviderResult();
+    result.receipts.splice(1, 1);
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 8);
+
+    expect(finished.status).toBe("SUCCEEDED");
+    expect(events.map((event) => event.type)).toEqual([
+      "STAGE_STARTED",
+      "STAGE_COMPLETED",
+      "QUALITY_CHECK_STARTED",
+      "QUALITY_CHECK_PASSED",
+      "PREVIEW_READY"
+    ]);
+  });
+
+  it("fails closed on an empty provider receipt batch", async () => {
+    const result = successfulProviderResult();
+    result.receipts = [];
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      ...creationEventTypes,
+      "TASK_FAILED"
+    ]);
+  });
+
+  it("does not persist an incomplete provider batch that cannot enter quality checking", async () => {
+    const result = successfulProviderResult();
+    result.receipts = result.receipts.slice(0, 1);
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      ...creationEventTypes,
+      "TASK_FAILED"
+    ]);
+  });
+
+  it("rejects every provider parameter receipt that disagrees with the selected plan", async () => {
+    const result = successfulProviderResult();
+    result.receipts.splice(2, 0, providerEvent(
+      "PARAM_DIRECTION_APPLIED",
+      "RETOUCH",
+      "portrait.parameter.direction",
+      { direction: "CLEAR_RESCUE", level: "MODERATE" }
+    ));
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      ...creationEventTypes,
+      "TASK_FAILED"
+    ]);
+  });
+
+  it("previews a provider batch against persisted history and rejects it atomically", async () => {
+    const first = successfulProviderResult();
+    const second = successfulProviderResult();
+    second.receipts = [
+      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", {
+        stage: "LOCAL_LIGHT_AND_SKIN"
+      })
+    ];
+    const repository = new InMemoryTaskRepository();
+    const service = new TaskService(
+      repository,
+      new AttemptResultImageProvider([first, second]),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new SequenceQualityGate([failedGate])
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      ...creationEventTypes,
+      "STAGE_STARTED",
+      "PARAM_DIRECTION_APPLIED",
+      "STAGE_COMPLETED",
+      "QUALITY_CHECK_STARTED",
+      "QUALITY_CHECK_FAILED",
+      "RETRY_STARTED",
+      "TASK_FAILED"
+    ]);
+    expect(events.map((event) => event.sequence)).toEqual(
+      Array.from({ length: events.length }, (_, index) => index + 1)
+    );
   });
 
   it("claims confirmation once when two requests arrive concurrently", async () => {
