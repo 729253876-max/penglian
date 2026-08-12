@@ -10,11 +10,18 @@ export class RepairJournalService {
     history: readonly EditTraceEvent[],
     event: EditTraceEvent
   ): EditTraceEvent {
-    for (let index = 0; index < history.length; index += 1) {
-      if (history[index]?.sequence !== index + 1) {
-        throw new Error("TRACE_SEQUENCE_INVALID");
-      }
+    const verifiedPrefix: EditTraceEvent[] = [];
+    for (const historicalEvent of history) {
+      this.validateAppend(verifiedPrefix, historicalEvent);
+      verifiedPrefix.push(historicalEvent);
     }
+    return this.validateAppend(verifiedPrefix, event);
+  }
+
+  private validateAppend(
+    history: readonly EditTraceEvent[],
+    event: EditTraceEvent
+  ): EditTraceEvent {
     const previous = history.at(-1);
     if (event.sequence !== (previous?.sequence ?? 0) + 1) {
       throw new Error("TRACE_SEQUENCE_INVALID");
@@ -81,6 +88,10 @@ export class RepairJournalService {
         break;
       case "PARAM_DIRECTION_APPLIED":
         this.require(attemptHas("STAGE_STARTED") && !attemptHas("STAGE_COMPLETED"));
+        if (history.find((item) => item.type === "PLAN_SELECTED")?.payload.direction !==
+          event.payload.direction) {
+          throw new Error("TRACE_DIRECTION_MISMATCH");
+        }
         break;
       case "STAGE_COMPLETED":
         this.require(attemptHas("STAGE_STARTED") && !attemptHas("STAGE_COMPLETED"));
@@ -100,7 +111,9 @@ export class RepairJournalService {
           !attemptHas("QUALITY_CHECK_PASSED") && !attemptHas("QUALITY_CHECK_FAILED"));
         break;
       case "RETRY_STARTED":
-        if (retryCount >= 1) throw new Error("TRACE_RETRY_LIMIT_EXCEEDED");
+        if (retryCount >= 1 || event.payload.attempt !== 2) {
+          throw new Error("TRACE_RETRY_LIMIT_EXCEEDED");
+        }
         this.require(lastQualityResult?.type === "QUALITY_CHECK_FAILED");
         break;
       case "PREVIEW_READY":

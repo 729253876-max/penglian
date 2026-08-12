@@ -92,6 +92,25 @@ describe("RepairJournalService", () => {
     )).toThrow("TRACE_SEQUENCE_INVALID");
   });
 
+  it.each([
+    [
+      "protection without diagnosis",
+      [event("ASSET_APPROVED", 1), event("PROTECTION_RECORDED", 2)]
+    ],
+    [
+      "a quality result without a quality start",
+      [
+        ...processed(),
+        event("QUALITY_CHECK_PASSED", processed().length + 1)
+      ]
+    ]
+  ])("replays and rejects a semantically invalid history containing %s", (_name, invalidHistory) => {
+    expect(() => journal.validateNext(
+      invalidHistory,
+      event("TASK_FAILED", invalidHistory.length + 1)
+    )).toThrow("TRACE_PREREQUISITE_MISSING");
+  });
+
   it.each([0, 1, 3])("allows %i diagnosis findings while preserving legal phase order", (findingCount) => {
     const history = creation(findingCount);
     const next = event("STAGE_STARTED", history.length + 1);
@@ -132,6 +151,19 @@ describe("RepairJournalService", () => {
       .toBe("STAGE_STARTED");
   });
 
+  it("requires every applied parameter direction to match the unique selected plan", () => {
+    const history = creation();
+    history.push(event("STAGE_STARTED", history.length + 1));
+    const matching = event("PARAM_DIRECTION_APPLIED", history.length + 1);
+    const mismatched = event("PARAM_DIRECTION_APPLIED", history.length + 1, {
+      payload: { direction: "CLEAR_RESCUE", level: "MODERATE" }
+    });
+
+    expect(journal.validateNext(history, matching)).toBe(matching);
+    expect(() => journal.validateNext(history, mismatched))
+      .toThrow("TRACE_DIRECTION_MISMATCH");
+  });
+
   it("pairs each quality result with a project-owned start for the same attempt", () => {
     const history = processed();
     expect(() => journal.validateNext(history, event("QUALITY_CHECK_STARTED", history.length + 1, {
@@ -157,6 +189,15 @@ describe("RepairJournalService", () => {
     history.push(event("RETRY_STARTED", history.length + 1));
     expect(() => journal.validateNext(history, event("RETRY_STARTED", history.length + 1)))
       .toThrow("TRACE_RETRY_LIMIT_EXCEEDED");
+  });
+
+  it("explicitly rejects an attempt 3 retry payload even when passed as an unsafe runtime event", () => {
+    const history = processed();
+    history.push(event("QUALITY_CHECK_STARTED", history.length + 1));
+    history.push(event("QUALITY_CHECK_FAILED", history.length + 1));
+    expect(() => journal.validateNext(history, event("RETRY_STARTED", history.length + 1, {
+      payload: { attempt: 3 }
+    } as unknown as Partial<EditTraceEvent>))).toThrow("TRACE_RETRY_LIMIT_EXCEEDED");
   });
 
   it("requires the last quality result to pass before preview", () => {
