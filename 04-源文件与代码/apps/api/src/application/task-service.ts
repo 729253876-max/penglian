@@ -286,7 +286,7 @@ export class TaskService {
         payload: {}
       });
       let quality: QualityGateResult;
-      let qualityEvent: ProviderEvent;
+      let qualityEvent: EditTraceEvent;
       try {
         quality = this.assertValidQualityGateResult(
           await this.qualityGate.evaluate({
@@ -295,7 +295,7 @@ export class TaskService {
             direction: (task.input as PortraitTaskInput).direction
           })
         );
-        qualityEvent = quality.passed
+        const unsafeQualityEvent: ProviderEvent = quality.passed
           ? {
               type: "QUALITY_CHECK_PASSED",
               phase: "QUALITY",
@@ -317,12 +317,13 @@ export class TaskService {
                 failedChecks: quality.failedChecks
               }
             };
+        qualityEvent = this.sanitizeEvent(task, unsafeQualityEvent);
       } catch {
         await this.failTask(task, "FIDELITY_GATE_FAILED", "QUALITY_GATE");
         return this.snapshot(task);
       }
       if (quality.passed) {
-        await this.append(task, qualityEvent);
+        await this.appendSanitized(task, qualityEvent);
         await this.append(task, {
           type: "PREVIEW_READY",
           phase: "DELIVERY",
@@ -338,7 +339,7 @@ export class TaskService {
         return this.snapshot(task);
       }
 
-      await this.append(task, qualityEvent);
+      await this.appendSanitized(task, qualityEvent);
       if (attempt === 1) {
         task.status = transition(task.status, "PROCESSING");
         await this.repository.save(task);
@@ -443,44 +444,77 @@ export class TaskService {
       !value ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      !("passed" in value) ||
-      typeof value.passed !== "boolean"
+      !Object.hasOwn(value, "passed")
     ) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
 
-    const expectedKeys = value.passed
+    const passed = Reflect.get(value, "passed") as unknown;
+    if (typeof passed !== "boolean") {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const expectedKeys = passed
       ? ["passed", "checks"]
       : ["passed", "checks", "failedChecks"];
     if (!this.hasExactOwnKeys(value, expectedKeys)) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
 
-    const checks = (value as { checks?: unknown }).checks;
-    if (!this.isValidUniqueCheckList(checks)) {
-      throw new Error("INVALID_QUALITY_GATE_RESULT");
-    }
-    if (value.passed) {
+    const checks = this.snapshotCheckList(Reflect.get(value, "checks"));
+    if (passed) {
       return { passed: true, checks };
     }
 
-    const failedChecks = (value as { failedChecks?: unknown }).failedChecks;
-    if (
-      !this.isValidUniqueCheckList(failedChecks) ||
-      !failedChecks.every((check) => checks.includes(check))
-    ) {
+    const failedChecks = this.snapshotCheckList(
+      Reflect.get(value, "failedChecks")
+    );
+    if (!failedChecks.every((check) => checks.includes(check))) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
     return { passed: false, checks, failedChecks };
   }
 
-  private isValidUniqueCheckList(value: unknown): value is FidelityCheck[] {
-    return Array.isArray(value) &&
-      value.length > 0 &&
-      value.every((check): check is FidelityCheck =>
-        typeof check === "string" && fidelityChecks.has(check as FidelityCheck)
-      ) &&
-      new Set(value).size === value.length;
+  private snapshotCheckList(value: unknown): FidelityCheck[] {
+    if (!Array.isArray(value)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const length = Reflect.get(value, "length") as unknown;
+    if (
+      typeof length !== "number" ||
+      !Number.isSafeInteger(length) ||
+      length < 1 ||
+      length > fidelityChecks.size
+    ) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const expectedKeys = [
+      ...Array.from({ length }, (_, index) => String(index)),
+      "length"
+    ];
+    if (!this.hasExactOwnKeys(value, expectedKeys)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+
+    const snapshot: FidelityCheck[] = [];
+    const seen = new Set<FidelityCheck>();
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor)) {
+        throw new Error("INVALID_QUALITY_GATE_RESULT");
+      }
+      const check = descriptor.value as unknown;
+      if (
+        typeof check !== "string" ||
+        !fidelityChecks.has(check as FidelityCheck) ||
+        seen.has(check as FidelityCheck)
+      ) {
+        throw new Error("INVALID_QUALITY_GATE_RESULT");
+      }
+      const trustedCheck = check as FidelityCheck;
+      seen.add(trustedCheck);
+      snapshot.push(trustedCheck);
+    }
+    return snapshot;
   }
 
   private async failTask(
@@ -516,13 +550,19 @@ export class TaskService {
   }
 
   private async append(task: StoredTask, event: ProviderEvent): Promise<void> {
-    const fullEvent = sanitizeEditTraceEvent({
+    await this.appendSanitized(task, this.sanitizeEvent(task, event));
+  }
+
+  private sanitizeEvent(
+    task: StoredTask,
+    event: ProviderEvent
+  ): EditTraceEvent {
+    return sanitizeEditTraceEvent({
       ...event,
       eventId: randomUUID(),
       taskId: task.taskId,
       sequence: task.lastSequence + 1
     });
-    await this.appendSanitized(task, fullEvent);
   }
 
   private sanitizeProviderEventBatch(

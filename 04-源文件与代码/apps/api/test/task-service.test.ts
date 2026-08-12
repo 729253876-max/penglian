@@ -385,6 +385,49 @@ describe("TaskService", () => {
     expect(events.some((event) => event.type === "PREVIEW_READY")).toBe(false);
   });
 
+  it.each(["throws", "changes"])(
+    "snapshots stateful quality checks before a later read %s",
+    async (laterRead) => {
+      let reads = 0;
+      const checks: string[] = [];
+      Object.defineProperty(checks, "0", {
+        enumerable: true,
+        configurable: true,
+        get() {
+          reads += 1;
+          if (reads <= 2) return "IDENTITY";
+          if (laterRead === "throws") throw new Error("stateful check read");
+          return "UNKNOWN";
+        }
+      });
+      checks.length = 1;
+      const service = new TaskService(
+        new InMemoryTaskRepository(),
+        new CountingImageProvider(),
+        new StageADemoAssetReader(),
+        undefined,
+        undefined,
+        undefined,
+        new MalformedResolvedQualityGate({ passed: true, checks })
+      );
+      const created = await service.create(userId, portraitInput);
+
+      await expect(service.confirmAndRunPreview(userId, created.taskId)).resolves.toMatchObject({
+        status: "FAILED",
+        failureCode: "FIDELITY_GATE_FAILED",
+        noCharge: true
+      });
+      const finished = await service.get(userId, created.taskId);
+      const events = await service.getEvents(userId, created.taskId, 0);
+      expect(finished.previewUrl).toBeUndefined();
+      expect(events.at(-1)).toMatchObject({
+        type: "TASK_FAILED",
+        evidenceSource: "QUALITY_GATE",
+        payload: { code: "FIDELITY_GATE_FAILED" }
+      });
+    }
+  );
+
   it("lets a valid non-demo candidate reach the default fail-closed gate", async () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
