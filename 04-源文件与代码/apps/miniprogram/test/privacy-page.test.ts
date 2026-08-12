@@ -39,6 +39,35 @@ afterEach(() => {
 });
 
 describe("privacy consent page", () => {
+  it("allowlists upload as a return target after consent", async () => {
+    session.ensureSession.mockResolvedValueOnce({});
+    const config = await loadPrivacyPage();
+    const page = pageInstance(config);
+    config.onLoad.call(page, { next: "upload" });
+    config.setPrivacyAccepted.call(page, { detail: { value: true } });
+    config.setMetadataRemoval.call(page, { detail: { value: true } });
+
+    await config.continueUpload.call(page);
+
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/upload/index" });
+  });
+
+  it.each([undefined, "plan", "https://evil.invalid", "/pages/upload/index", ["upload"]])(
+    "falls back to plan for a missing or unknown return target %#",
+    async (next) => {
+      session.ensureSession.mockResolvedValueOnce({});
+      const config = await loadPrivacyPage();
+      const page = pageInstance(config);
+      config.onLoad.call(page, next === undefined ? {} : { next });
+      config.setPrivacyAccepted.call(page, { detail: { value: true } });
+      config.setMetadataRemoval.call(page, { detail: { value: true } });
+
+      await config.continueUpload.call(page);
+
+      expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/plan/index" });
+    }
+  );
+
   it("starts with both independent consent choices off", async () => {
     const config = await loadPrivacyPage();
     const page = pageInstance(config);

@@ -1,5 +1,6 @@
 export type ProductEvent =
   | { name: "HOME_PRIMARY_TAPPED"; dimensions: { scenario: "TRAVEL_PORTRAIT" } }
+  | { name: "HOME_OWN_PHOTO_TAPPED"; dimensions: { source: "HOME" } }
   | { name: "DEMO_CASE_OPENED"; dimensions: { source: "HOME" } }
   | { name: "DEMO_STARTED"; dimensions: { source: "CASE_PAGE" } }
   | { name: "PREVIEW_COMPARE_USED"; dimensions: { mode: "SLIDER" } }
@@ -69,6 +70,14 @@ export function createProductEventRecorder(sink: (event: ProductEvent) => void) 
             invalidProductEvent();
           }
           sink({ name, dimensions: { scenario } });
+          return;
+        }
+        case "HOME_OWN_PHOTO_TAPPED": {
+          const source = readExactDimension(dimensions, "source", ["HOME"]);
+          if (source === undefined) {
+            invalidProductEvent();
+          }
+          sink({ name, dimensions: { source } });
           return;
         }
         case "DEMO_CASE_OPENED": {

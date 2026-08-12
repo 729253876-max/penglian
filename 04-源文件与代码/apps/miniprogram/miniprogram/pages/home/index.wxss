@@ -12,6 +12,8 @@
 .hero-name { margin-bottom: 8rpx; font-size: 34rpx; font-weight: 750; }
 .hero .button-primary { margin-top: 28rpx; }
 .button-secondary { margin-top: 16rpx; border: 1rpx solid #171719; border-radius: 28rpx; background: #fff; color: #171719; font-size: 30rpx; font-weight: 700; }
+.evidence-link { height: 72rpx; margin-top: 8rpx; border: 0; background: transparent; color: #6c58c9; font-size: 24rpx; line-height: 72rpx; }
+.evidence-link::after { border: 0; }
 .scenario-heading { margin-top: 40rpx; font-size: 32rpx; font-weight: 750; }
 .scenario-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20rpx; margin-top: 20rpx; }
 .scenario-card { border-radius: 24rpx; padding: 28rpx; background: #ece8e2; }

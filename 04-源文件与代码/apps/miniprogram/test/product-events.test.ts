@@ -6,11 +6,12 @@ import {
 } from "../miniprogram/services/product-events";
 
 describe("product event recorder", () => {
-  it("records only the five approved event shapes", () => {
+  it("records only the approved event shapes", () => {
     const received: ProductEvent[] = [];
     const recorder = createProductEventRecorder((event) => received.push(event));
     const events: ProductEvent[] = [
       { name: "HOME_PRIMARY_TAPPED", dimensions: { scenario: "TRAVEL_PORTRAIT" } },
+      { name: "HOME_OWN_PHOTO_TAPPED", dimensions: { source: "HOME" } },
       { name: "DEMO_CASE_OPENED", dimensions: { source: "HOME" } },
       { name: "DEMO_STARTED", dimensions: { source: "CASE_PAGE" } },
       { name: "PREVIEW_COMPARE_USED", dimensions: { mode: "SLIDER" } },

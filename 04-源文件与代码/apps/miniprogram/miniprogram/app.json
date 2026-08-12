@@ -3,6 +3,7 @@
     "pages/home/index",
     "pages/cases/index",
     "pages/privacy/index",
+    "pages/upload/index",
     "pages/plan/index",
     "pages/live/index",
     "pages/preview/index"

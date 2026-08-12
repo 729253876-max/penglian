@@ -161,6 +161,30 @@ describe("plan page", () => {
 });
 
 describe("home page", () => {
+  it("routes an own-photo action through privacy without requesting a photo on load", async () => {
+    const config = await loadPage("../miniprogram/pages/home/index");
+
+    expect(config.startOwnPhoto).toBeTypeOf("function");
+    expect(wx.navigateTo).not.toHaveBeenCalled();
+    config.startOwnPhoto();
+
+    expect(productEvents.record).toHaveBeenCalledWith("HOME_OWN_PHOTO_TAPPED", {
+      source: "HOME"
+    });
+    expect(wx.navigateTo).toHaveBeenCalledWith({
+      url: "/pages/privacy/index?next=upload"
+    });
+  });
+
+  it("registers the private upload page", async () => {
+    const manifest = JSON.parse(await readFile(
+      new URL("../miniprogram/app.json", import.meta.url),
+      "utf8"
+    )) as { pages: string[] };
+
+    expect(manifest.pages).toContain("pages/upload/index");
+  });
+
   it("locks the first-screen rescue promise in the rendered template", async () => {
     const template = await readFile(
       new URL("../miniprogram/pages/home/index.wxml", import.meta.url),

@@ -18,10 +18,15 @@ function loginFailureMessage(error: unknown): string {
 
 Page({
   data: {
+    returnTarget: "plan" as "plan" | "upload",
     privacyAccepted: false,
     metadataRemoval: false,
     submitting: false,
     error: ""
+  },
+
+  onLoad(options: Record<string, unknown>) {
+    this.setData({ returnTarget: options.next === "upload" ? "upload" : "plan" });
   },
 
   setPrivacyAccepted(event: { detail: { value: unknown } }) {
@@ -52,7 +57,11 @@ Page({
         metadataRemoval: true
       });
       this.setData({ submitting: false });
-      wx.navigateTo({ url: "/pages/plan/index" });
+      wx.navigateTo({
+        url: this.data.returnTarget === "upload"
+          ? "/pages/upload/index"
+          : "/pages/plan/index"
+      });
     } catch (error) {
       this.setData({
         submitting: false,
