@@ -3,8 +3,13 @@ import { fileURLToPath } from "node:url";
 import { createPool, type Pool } from "mysql2/promise";
 import { buildApp } from "./app.js";
 import { IdentityService } from "./application/identity-service.js";
+import { UploadSessionService } from "./application/upload-session-service.js";
+import { UploadFinalizationService } from "./application/upload-finalization-service.js";
+import { UploadApplicationService } from "./application/upload-application-service.js";
 import { loadConfig, type ApiConfig } from "./config.js";
 import { MySqlIdentityRepository } from "./infrastructure/mysql-identity-repository.js";
+import { MySqlUploadRepository } from "./infrastructure/mysql-upload-repository.js";
+import type { ObjectStorage } from "./ports/object-storage.js";
 import { createMySqlReadiness } from "./infrastructure/mysql-readiness.js";
 import { WechatCodeGateway } from "./infrastructure/wechat-code-gateway.js";
 import {
@@ -16,6 +21,7 @@ import {
 export interface ProductionAppDependencies {
   pool?: Pool;
   fetcher?: typeof fetch;
+  objectStorage?: ObjectStorage;
 }
 
 export function buildProductionApp(
@@ -25,6 +31,16 @@ export function buildProductionApp(
   const ownsPool = dependencies.pool === undefined;
   const pool = dependencies.pool ?? createPool(config.mysqlUrl);
   const repository = new MySqlIdentityRepository(pool);
+  const uploadRepository = dependencies.objectStorage
+    ? new MySqlUploadRepository(pool)
+    : undefined;
+  const uploadService = dependencies.objectStorage && uploadRepository
+    ? new UploadApplicationService(
+        new UploadSessionService(uploadRepository, dependencies.objectStorage),
+        new UploadFinalizationService(dependencies.objectStorage, uploadRepository),
+        uploadRepository
+      )
+    : undefined;
   const app = buildApp({
     logger: config.nodeEnv === "test" ? false : true,
     identityService: new IdentityService(repository, config),
@@ -33,7 +49,8 @@ export function buildProductionApp(
     currentUserReader: createMySqlCurrentUserReader(
       pool as unknown as CurrentUserDatabase
     ),
-    readiness: createMySqlReadiness(pool)
+    readiness: createMySqlReadiness(pool),
+    ...(uploadService ? { uploadService } : {})
   });
 
   if (ownsPool) {

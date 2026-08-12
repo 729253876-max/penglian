@@ -120,6 +120,16 @@ export class MySqlJobRepository implements JobRepository {
     requireLease(result);
   }
 
+  public async renew(jobId: string, leaseToken: string, leaseExpiresAt: Date): Promise<void> {
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `UPDATE jobs
+       SET lease_expires_at = ?
+       WHERE id = ? AND status = 'LEASED' AND lease_token = ?`,
+      [leaseExpiresAt, jobId, leaseToken]
+    );
+    requireLease(result);
+  }
+
   public async retry(
     jobId: string,
     leaseToken: string,
@@ -132,6 +142,17 @@ export class MySqlJobRepository implements JobRepository {
            lease_token = NULL, lease_expires_at = NULL, last_error_code = ?
        WHERE id = ? AND status = 'LEASED' AND lease_token = ?`,
       [nextRunAt, errorCode, jobId, leaseToken]
+    );
+    requireLease(result);
+  }
+
+  public async fail(jobId: string, leaseToken: string, errorCode: string): Promise<void> {
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `UPDATE jobs
+       SET status = 'FAILED', lease_owner = NULL, lease_token = NULL,
+           lease_expires_at = NULL, last_error_code = ?
+       WHERE id = ? AND status = 'LEASED' AND lease_token = ?`,
+      [errorCode, jobId, leaseToken]
     );
     requireLease(result);
   }

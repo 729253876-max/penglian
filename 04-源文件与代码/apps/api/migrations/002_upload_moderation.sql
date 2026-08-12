@@ -3,10 +3,20 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   user_id CHAR(36) NOT NULL,
   state VARCHAR(32) NOT NULL,
   object_key VARCHAR(512) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  declared_size_bytes BIGINT UNSIGNED NOT NULL,
+  consent_policy_version VARCHAR(64) NOT NULL,
+  etag VARCHAR(256) NULL,
+  quality_warning BOOLEAN NULL,
+  failure_code VARCHAR(64) NULL,
+  moderation_started_at DATETIME(3) NULL,
   credential_issue_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
   expires_at DATETIME(3) NOT NULL,
   created_at DATETIME(3) NOT NULL,
-  UNIQUE KEY uq_upload_object (object_key)
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uq_upload_object (object_key),
+  KEY ix_upload_owner (user_id, id),
+  KEY ix_upload_state (state, updated_at)
 );
 
 CREATE TABLE IF NOT EXISTS assets (

@@ -18,6 +18,7 @@ describe("upload finalization service", () => {
       sessionId: "session-1",
       userId: "user-1",
       sourceObjectKey: "users/user-1/uploads/session-1/original",
+      expectedEtag: "etag-1",
       now: new Date("2030-01-02T03:04:05.000Z")
     });
 
@@ -28,6 +29,26 @@ describe("upload finalization service", () => {
       normalizeJobIdempotencyKey: "normalize:session-1",
       source: { sizeBytes: 1024, contentType: "image/jpeg", etag: "etag-1" }
     })]);
+  });
+
+  it("rejects an etag mismatch before changing state or enqueueing work", async () => {
+    let repositoryCalls = 0;
+    const service = new UploadFinalizationService(
+      { headPrivateObject: async () => ({ sizeBytes: 1024, contentType: "image/jpeg", etag: "actual-etag" }) },
+      {
+        acceptUploadedObject: async () => { repositoryCalls += 1; },
+        completeNormalization: async () => { throw new Error("unexpected"); },
+        failNormalization: async () => { throw new Error("unexpected"); }
+      }
+    );
+
+    await expect(service.acceptUploadedObject({
+      sessionId: "session-1", userId: "user-1",
+      sourceObjectKey: "users/user-1/uploads/session-1/original",
+      expectedEtag: "claimed-etag",
+      now: new Date("2030-01-02T03:04:05.000Z")
+    })).rejects.toThrow("UPLOAD_ETAG_MISMATCH");
+    expect(repositoryCalls).toBe(0);
   });
 
   it("writes normalized assets and moderation work in one repository operation", async () => {

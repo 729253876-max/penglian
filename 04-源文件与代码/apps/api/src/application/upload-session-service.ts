@@ -16,9 +16,13 @@ export interface StoredUploadSession {
   userId: string;
   state: "INIT";
   objectKey: string;
+  fileName: string;
+  declaredSizeBytes: number;
+  consentPolicyVersion: string;
   credentialIssueCount: number;
   expiresAt: Date;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface UploadSessionRepository {
@@ -65,13 +69,20 @@ export class UploadSessionService {
       userId,
       state: "INIT",
       objectKey,
-      credentialIssueCount: 1,
+      fileName: input.fileName,
+      declaredSizeBytes: input.sizeBytes,
+      consentPolicyVersion: input.metadataRemovalConsentVersion,
+      credentialIssueCount: 0,
       expiresAt: new Date(now.getTime() + uploadPolicy.sessionTtlMs),
-      createdAt: new Date(now)
+      createdAt: new Date(now),
+      updatedAt: new Date(now)
     };
     await this.repository.insert(session);
     const credential = await this.issueCredential(userId, sessionId, objectKey, now);
-    return { session, credential };
+    if (!await this.repository.recordCredentialIssue(sessionId, 0)) {
+      throw new Error("CREDENTIAL_ISSUE_RECORD_FAILED");
+    }
+    return { session: { ...session, credentialIssueCount: 1 }, credential };
   }
 
   public async reissueCredentials(

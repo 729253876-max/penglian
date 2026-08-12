@@ -24,6 +24,7 @@ export interface LeasedJob extends EnqueuedJob {
 export interface JobRepository {
   enqueue(input: EnqueueJobInput): Promise<EnqueuedJob>;
   leaseNext(workerId: string, now: Date, leaseMs: number): Promise<LeasedJob | undefined>;
+  renew(jobId: string, leaseToken: string, leaseExpiresAt: Date): Promise<void>;
   complete(jobId: string, leaseToken: string): Promise<void>;
   retry(
     jobId: string,
@@ -31,4 +32,5 @@ export interface JobRepository {
     nextRunAt: Date,
     errorCode: string
   ): Promise<void>;
+  fail(jobId: string, leaseToken: string, errorCode: string): Promise<void>;
 }

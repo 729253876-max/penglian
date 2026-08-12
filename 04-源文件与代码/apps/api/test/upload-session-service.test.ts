@@ -51,9 +51,28 @@ describe("upload session service", () => {
 
     expect(result.session.id).toBe("session-1");
     expect(result.session.objectKey).toBe("users/user-1/uploads/session-1/original");
+    expect(result.session.credentialIssueCount).toBe(1);
+    expect(repository.sessions.get("session-1")?.credentialIssueCount).toBe(1);
     expect(result.session.expiresAt.toISOString()).toBe("2030-01-02T03:34:05.000Z");
     expect(result.credential.expiresAt.toISOString()).toBe("2030-01-02T03:14:05.000Z");
     expect(issued).toEqual(["users/user-1/uploads/session-1/original"]);
+  });
+
+  it("does not count an initial credential that storage failed to issue", async () => {
+    const repository = new MemoryRepository();
+    const service = new UploadSessionService(
+      repository,
+      { issueUploadCredential: async () => { throw new Error("STORAGE_UNAVAILABLE"); } },
+      { now: () => new Date(now) },
+      () => "session-1"
+    );
+
+    await expect(service.createSession("user-1", {
+      fileName: "photo.jpg",
+      sizeBytes: 1024,
+      metadataRemovalConsentVersion: "2026-08-02"
+    })).rejects.toThrow("STORAGE_UNAVAILABLE");
+    expect(repository.sessions.get("session-1")?.credentialIssueCount).toBe(0);
   });
 
   it("fails closed before storage when current consent is absent", async () => {

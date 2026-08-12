@@ -12,11 +12,12 @@ export interface NormalizedImage {
     objectKey: string;
     width: number;
     height: number;
+    sizeBytes: number;
     colorSpace: "sRGB";
     metadataRemoved: true;
     hasAlpha: boolean;
   };
-  audit: { objectKey: string; width: number; height: number };
+  audit: { objectKey: string; width: number; height: number; sizeBytes: number };
   qualityWarning: boolean;
 }
 

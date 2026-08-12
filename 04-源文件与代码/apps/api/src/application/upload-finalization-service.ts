@@ -1,14 +1,18 @@
 import type { ImageNormalizer, NormalizedImage } from "../ports/image-normalizer.js";
 import type { ObjectStorage, PrivateObjectMetadata } from "../ports/object-storage.js";
 
-interface AcceptUploadedObjectInput {
+interface UploadObjectInput {
   sessionId: string;
   userId: string;
   sourceObjectKey: string;
   now: Date;
 }
 
-interface NormalizeAcceptedUploadInput extends AcceptUploadedObjectInput {
+interface AcceptUploadedObjectInput extends UploadObjectInput {
+  expectedEtag: string;
+}
+
+interface NormalizeAcceptedUploadInput extends UploadObjectInput {
   normalizedObjectKey: string;
   auditObjectKey: string;
 }
@@ -42,6 +46,9 @@ export class UploadFinalizationService {
 
   public async acceptUploadedObject(input: AcceptUploadedObjectInput): Promise<void> {
     const source = await this.storage.headPrivateObject(input.sourceObjectKey);
+    if (normalizeEtag(source.etag) !== normalizeEtag(input.expectedEtag)) {
+      throw new Error("UPLOAD_ETAG_MISMATCH");
+    }
     await this.repository.acceptUploadedObject({
       ...input,
       expectedState: "INIT",
@@ -75,6 +82,10 @@ export class UploadFinalizationService {
       throw error;
     }
   }
+}
+
+function normalizeEtag(value: string): string {
+  return value.trim().replace(/^"|"$/g, "");
 }
 
 const permanentNormalizationErrors = new Set([

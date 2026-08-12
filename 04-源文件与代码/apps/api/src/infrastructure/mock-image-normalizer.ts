@@ -31,11 +31,12 @@ export class MockImageNormalizer implements ImageNormalizer {
         objectKey: input.normalizedObjectKey,
         width: source.width,
         height: source.height,
+        sizeBytes: 900_000,
         colorSpace: "sRGB",
         metadataRemoved: true,
         hasAlpha: this.fixture === "png-transparent"
       },
-      audit: { objectKey: input.auditObjectKey, width: source.width, height: source.height },
+      audit: { objectKey: input.auditObjectKey, width: source.width, height: source.height, sizeBytes: 750_000 },
       qualityWarning
     };
   }

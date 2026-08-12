@@ -16,6 +16,7 @@ import {
   type WechatCodeGateway
 } from "./routes/identity.js";
 import { registerTaskRoutes, type TaskApiService } from "./routes/tasks.js";
+import { registerUploadRoutes, type UploadApiService } from "./routes/uploads.js";
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
@@ -25,6 +26,7 @@ export interface BuildAppOptions {
   sessionAuthenticator?: SessionAuthenticator;
   currentUserReader?: CurrentUserReader;
   readiness?: Readiness;
+  uploadService?: UploadApiService;
 }
 
 export interface Readiness {
@@ -49,6 +51,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     service,
     authenticate: requireTaskAuthentication
   });
+  if (options.uploadService) {
+    app.register(registerUploadRoutes, {
+      service: options.uploadService,
+      authenticate: requireTaskAuthentication
+    });
+  }
   app.get("/health/live", async () => ({ status: "live" }));
   app.get("/health/ready", async (_request, reply) => {
     if (!options.readiness) {

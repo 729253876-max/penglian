@@ -131,6 +131,24 @@ describe(
         .resolves.toBeUndefined();
     });
 
+    it("renews an active lease and prevents recovery at the original expiry", async () => {
+      const now = new Date("2030-01-02T03:04:05.000Z");
+      const { jobId } = await repository.enqueue({
+        type: "NORMALIZE_UPLOAD", payload: { sessionId: "session-renew" },
+        maxAttempts: 2, runAfter: now, idempotencyKey: "normalize:session-renew"
+      });
+      const first = await repository.leaseNext("worker-1", now, 30_000);
+      const renewedUntil = new Date(now.getTime() + 60_000);
+
+      await expect(repository.renew(jobId, first!.leaseToken, renewedUntil)).resolves.toBeUndefined();
+      await expect(repository.leaseNext("worker-2", new Date(now.getTime() + 30_001), 30_000))
+        .resolves.toBeUndefined();
+      await expect(repository.leaseNext("worker-2", new Date(renewedUntil.getTime() + 1), 30_000))
+        .resolves.toMatchObject({ jobId, attempt: 2 });
+      await expect(repository.renew(jobId, first!.leaseToken, renewedUntil))
+        .rejects.toThrow("JOB_LEASE_LOST");
+    });
+
     it("reschedules a retry without leaving the old lease usable", async () => {
       const now = new Date("2030-01-02T03:04:05.000Z");
       const nextRunAt = new Date(now.getTime() + 30_000);
@@ -158,6 +176,20 @@ describe(
       )).resolves.toBeUndefined();
       await expect(repository.leaseNext("worker-2", nextRunAt, 30_000))
         .resolves.toMatchObject({ jobId, attempt: 2 });
+    });
+
+    it("marks a final failed lease terminal and rejects its stale token", async () => {
+      const now = new Date("2030-01-02T03:04:05.000Z");
+      const { jobId } = await repository.enqueue({
+        type: "NORMALIZE_UPLOAD", payload: { sessionId: "session-fail" },
+        maxAttempts: 1, runAfter: now, idempotencyKey: "normalize:session-fail"
+      });
+      const lease = await repository.leaseNext("worker-1", now, 30_000);
+      await expect(repository.fail(jobId, lease!.leaseToken, "IMAGE_NORMALIZATION_FAILED"))
+        .resolves.toBeUndefined();
+      await expect(repository.complete(jobId, lease!.leaseToken)).rejects.toThrow("JOB_LEASE_LOST");
+      await expect(repository.leaseNext("worker-2", new Date(now.getTime() + 60_000), 30_000))
+        .resolves.toBeUndefined();
     });
   }
 );
