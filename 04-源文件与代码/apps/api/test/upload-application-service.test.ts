@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { UploadApplicationService } from "../src/application/upload-application-service.js";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
+const normalizedAssetId = "22222222-2222-4222-8222-222222222222";
 const objectKey = `users/user-1/uploads/${sessionId}/original`;
 
 describe("upload application service", () => {
@@ -56,4 +57,60 @@ describe("upload application service", () => {
     await service.cancel("user-1", sessionId);
     expect(canceled).toHaveLength(2);
   });
+
+  it("returns only the approved normalized asset id to its owner", async () => {
+    const service = buildUploadService({
+      sessionId,
+      userId: "user-1",
+      state: "APPROVED",
+      normalizedAssetId,
+      objectKey,
+      expiresAt: new Date("2030-01-02T03:34:05.000Z")
+    });
+
+    await expect(service.getStatus("user-1", sessionId)).resolves.toEqual({
+      sessionId,
+      state: "APPROVED",
+      assetId: normalizedAssetId
+    });
+  });
+
+  it("does not return an asset id before approval", async () => {
+    const service = buildUploadService({
+      sessionId,
+      userId: "user-1",
+      state: "REVIEWING",
+      normalizedAssetId,
+      objectKey,
+      expiresAt: new Date("2030-01-02T03:34:05.000Z")
+    });
+
+    await expect(service.getStatus("user-1", sessionId)).resolves.toEqual({
+      sessionId,
+      state: "REVIEWING"
+    });
+  });
 });
+
+function buildUploadService(status: {
+  sessionId: string;
+  userId: string;
+  state: "APPROVED" | "REVIEWING";
+  normalizedAssetId: string;
+  objectKey: string;
+  expiresAt: Date;
+}) {
+  return new UploadApplicationService(
+    {
+      createSession: async () => { throw new Error("unexpected"); },
+      reissueCredentials: async () => { throw new Error("unexpected"); }
+    },
+    { acceptUploadedObject: async () => { throw new Error("unexpected"); } },
+    {
+      findOwnedStatus: async (id, userId) => id === status.sessionId && userId === status.userId
+        ? status
+        : undefined,
+      cancelOwned: async () => undefined
+    }
+  );
+}

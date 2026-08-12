@@ -196,8 +196,12 @@ export class MySqlUploadRepository implements UploadSessionRepository {
 
   public async findOwnedStatus(sessionId: string, userId: string): Promise<OwnedStatus | undefined> {
     const [rows] = await this.pool.execute<OwnedStatusRow[]>(
-      `SELECT id, user_id, state, object_key, expires_at, quality_warning, failure_code
-       FROM upload_sessions WHERE id = ? AND user_id = ? LIMIT 1`,
+      `SELECT u.id, u.user_id, u.state, u.object_key, u.expires_at,
+              u.quality_warning, u.failure_code, a.id AS normalized_asset_id
+       FROM upload_sessions u
+       LEFT JOIN assets a ON a.upload_session_id = u.id
+         AND a.user_id = u.user_id AND a.kind = 'NORMALIZED' AND u.state = 'APPROVED'
+       WHERE u.id = ? AND u.user_id = ? LIMIT 1`,
       [sessionId, userId]
     );
     const row = rows[0];
@@ -206,7 +210,10 @@ export class MySqlUploadRepository implements UploadSessionRepository {
       sessionId: row.id, userId: row.user_id, state: row.state,
       objectKey: row.object_key, expiresAt: new Date(row.expires_at),
       ...(row.quality_warning !== null ? { qualityWarning: Boolean(row.quality_warning) } : {}),
-      ...(row.failure_code !== null ? { failureCode: row.failure_code } : {})
+      ...(row.failure_code !== null ? { failureCode: row.failure_code } : {}),
+      ...(row.state === "APPROVED" && row.normalized_asset_id != null
+        ? { normalizedAssetId: row.normalized_asset_id }
+        : {})
     };
   }
 
@@ -237,11 +244,13 @@ interface OwnedStatusRow extends RowDataPacket {
   id: string; user_id: string; state: UploadState; object_key: string;
   expires_at: Date | string; quality_warning: number | boolean | null;
   failure_code: string | null;
+  normalized_asset_id: string | null;
 }
 
 interface OwnedStatus {
   sessionId: string; userId: string; state: UploadState; objectKey: string;
   expiresAt: Date; qualityWarning?: boolean; failureCode?: string;
+  normalizedAssetId?: string;
 }
 
 type NormalizeInput = {

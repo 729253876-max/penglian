@@ -196,6 +196,41 @@ describe("MySqlUploadRepository session and normalization persistence", () => {
 });
 
 describe("MySqlUploadRepository owned status and cancellation", () => {
+  it("returns a normalized asset id only for an approved owned upload", async () => {
+    const connection = new ScriptedConnection();
+    connection.results.push([[{
+      id: "session-1", user_id: "user-1", state: "APPROVED",
+      object_key: "users/user-1/uploads/session-1/original",
+      expires_at: "2030-01-02T03:34:05.000Z", quality_warning: 0,
+      failure_code: null, normalized_asset_id: "asset-1"
+    }], []]);
+
+    await expect(repository(connection).findOwnedStatus("session-1", "user-1"))
+      .resolves.toEqual({
+        sessionId: "session-1", userId: "user-1", state: "APPROVED",
+        objectKey: "users/user-1/uploads/session-1/original",
+        expiresAt: new Date("2030-01-02T03:34:05.000Z"),
+        qualityWarning: false, normalizedAssetId: "asset-1"
+      });
+    expect(connection.statements[0]).toMatchObject({
+      sql: expect.stringMatching(/LEFT JOIN assets a ON .*a\.upload_session_id = u\.id.*a\.user_id = u\.user_id.*a\.kind = 'NORMALIZED'.*u\.state = 'APPROVED'/),
+      values: ["session-1", "user-1"]
+    });
+  });
+
+  it("does not map a normalized asset id for a non-approved upload", async () => {
+    const connection = new ScriptedConnection();
+    connection.results.push([[{
+      id: "session-1", user_id: "user-1", state: "REVIEWING",
+      object_key: "users/user-1/uploads/session-1/original",
+      expires_at: "2030-01-02T03:34:05.000Z", quality_warning: 0,
+      failure_code: null, normalized_asset_id: "asset-1"
+    }], []]);
+
+    await expect(repository(connection).findOwnedStatus("session-1", "user-1"))
+      .resolves.not.toHaveProperty("normalizedAssetId");
+  });
+
   it("maps only an owned upload to the safe application status record", async () => {
     const connection = new ScriptedConnection();
     connection.results.push([[{
