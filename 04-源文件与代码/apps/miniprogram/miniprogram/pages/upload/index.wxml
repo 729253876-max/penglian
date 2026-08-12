@@ -1,0 +1,46 @@
+<view class="upload-page">
+  <view class="privacy-strip">
+    <view class="privacy-mark" aria-hidden="true">私</view>
+    <view>
+      <view class="privacy-title">原图仅用于本次处理</view>
+      <view class="privacy-copy">不用于公共模型训练，可随时取消本次上传。</view>
+    </view>
+  </view>
+
+  <view class="intro">
+    <view class="eyebrow">PRIVATE DARKROOM · 01</view>
+    <view class="page-title">把照片交进暗房</view>
+    <view class="lead">一次只处理一张原图。照片完成私密上传和安全检查后，才会进入精修方案。</view>
+  </view>
+
+  <view class="envelope phase-{{phase}}">
+    <view class="envelope-tab">单张原图</view>
+    <view class="envelope-body">
+      <view class="status-kicker">{{phase === 'IDLE' ? '等待照片' : phase === 'READY' ? '检查完成' : phase === 'WARNING' ? '可以继续' : phase === 'FAILED' ? '需要重试' : '处理中'}}</view>
+      <view class="status-title" aria-role="heading">{{title}}</view>
+      <view class="status-detail">{{detail}}</view>
+
+      <view wx:if="{{phase !== 'IDLE'}}" class="progress" aria-label="当前处理进度">
+        <view class="progress-track"><view class="progress-value" style="width: {{progress}}%;"></view></view>
+        <view class="progress-meta"><text>处理进度</text><text>{{progress}}%</text></view>
+      </view>
+
+      <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
+    </view>
+  </view>
+
+  <view class="steps" aria-label="照片处理步骤">
+    <view class="step {{phase !== 'IDLE' ? 'is-done' : 'is-active'}}"><view class="step-dot"></view><view class="step-label">选择照片</view></view>
+    <view class="step {{phase !== 'IDLE' && progress >= 72 ? 'is-done' : phase !== 'IDLE' ? 'is-active' : ''}}"><view class="step-dot"></view><view class="step-label">私密上传</view></view>
+    <view class="step {{canContinue ? 'is-done' : progress >= 72 ? 'is-active' : ''}}"><view class="step-dot"></view><view class="step-label">安全检查</view></view>
+  </view>
+
+  <view class="actions">
+    <button wx:if="{{canContinue}}" class="button-primary" bindtap="continueEditing">继续选择精修方案</button>
+    <button wx:elif="{{canRetry}}" class="button-primary" disabled="{{busy}}" loading="{{busy}}" bindtap="retry">重新选择照片</button>
+    <button wx:else class="button-primary" disabled="{{busy}}" loading="{{busy}}" bindtap="choosePhoto">{{busy ? '正在处理' : '选择一张原图'}}</button>
+    <button wx:if="{{phase !== 'IDLE' && !canContinue}}" class="button-quiet" disabled="{{busy}}" bindtap="cancel">取消本次上传</button>
+  </view>
+
+  <view class="format-note">支持 JPG、PNG、HEIC、HEIF · 最大 30 MB</view>
+</view>
