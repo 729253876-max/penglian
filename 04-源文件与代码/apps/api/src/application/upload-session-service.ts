@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { systemClock, type Clock } from "../domain/clock.js";
 import { uploadPolicy, validateUploadHeader } from "../domain/upload-policy.js";
+import type { ObjectStorage, UploadCredential } from "../ports/object-storage.js";
 
 const approvedConsentPolicyVersion = "2026-08-02";
 
@@ -27,22 +28,7 @@ export interface UploadSessionRepository {
   recordCredentialIssue(sessionId: string, expectedCount: number): Promise<boolean>;
 }
 
-export interface UploadTarget {
-  url: string;
-  method: "PUT";
-  headers: Record<string, string>;
-}
-
-export interface UploadCredentialIssuer {
-  issueUploadCredential(input: {
-    userId: string;
-    sessionId: string;
-    objectKey: string;
-    expiresInSeconds: 600;
-  }): Promise<UploadTarget>;
-}
-
-export interface IssuedUploadCredential extends UploadTarget {
+export interface IssuedUploadCredential extends UploadCredential {
   expiresAt: Date;
 }
 
@@ -51,7 +37,7 @@ type IdGenerator = () => string;
 export class UploadSessionService {
   public constructor(
     private readonly repository: UploadSessionRepository,
-    private readonly credentialIssuer: UploadCredentialIssuer,
+    private readonly credentialIssuer: Pick<ObjectStorage, "issueUploadCredential">,
     private readonly clock: Clock = systemClock,
     private readonly idGenerator: IdGenerator = randomUUID
   ) {}
