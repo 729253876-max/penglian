@@ -50,6 +50,12 @@ class SequenceQualityGate implements PortraitQualityGate {
   }
 }
 
+class ThrowingQualityGate implements PortraitQualityGate {
+  public async evaluate(): Promise<QualityGateResult> {
+    throw new Error("quality adapter unavailable");
+  }
+}
+
 const approvedAsset: PortraitAsset = {
   assetId: "approved-portrait-1",
   userId: "user-1",
@@ -290,6 +296,127 @@ describe("TaskService", () => {
       noCharge: true
     });
     expect(finished.previewUrl).toBeUndefined();
+  });
+
+  it("fails closed when the quality gate throws without leaving the task checking", async () => {
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new CountingImageProvider(),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new ThrowingQualityGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    await expect(service.confirmAndRunPreview(userId, created.taskId)).resolves.toMatchObject({
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    });
+    const finished = await service.get(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+    expect(finished.previewUrl).toBeUndefined();
+    expect(events.at(-1)).toMatchObject({
+      type: "TASK_FAILED",
+      evidenceSource: "QUALITY_GATE",
+      payload: { code: "FIDELITY_GATE_FAILED" }
+    });
+  });
+
+  it("lets a valid non-demo candidate reach the default fail-closed gate", async () => {
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider({
+        ...successfulProviderResult(),
+        candidateAssetId: "real-candidate-1",
+        watermarkedPreviewUrl: "https://provider.invalid/watermarked/real-candidate-1.jpg"
+      }),
+      new FixedPortraitAssetReader(approvedAsset)
+    );
+    const created = await service.create("user-1", approvedPortraitInput);
+
+    await expect(service.confirmAndRunPreview("user-1", created.taskId)).resolves.toMatchObject({
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    });
+  });
+
+  it.each(["qualityPassed", "providerRawPayload", "nonEnumerableAuthority"])(
+    "rejects an extra provider candidate key %s before persisting receipts",
+    async (extraKey) => {
+      const candidate = successfulProviderResult();
+      if (extraKey === "nonEnumerableAuthority") {
+        Object.defineProperty(candidate, extraKey, { value: true });
+      } else {
+        (candidate as unknown as Record<string, unknown>)[extraKey] =
+          extraKey === "qualityPassed" ? true : { raw: "must-not-ship" };
+      }
+      const service = new TaskService(
+        new InMemoryTaskRepository(),
+        new FixedResultImageProvider(candidate),
+        new StageADemoAssetReader(),
+        undefined,
+        undefined,
+        undefined,
+        passingGate()
+      );
+      const created = await service.create(userId, portraitInput);
+
+      const finished = await service.confirmAndRunPreview(userId, created.taskId);
+      const events = await service.getEvents(userId, created.taskId, 0);
+
+      expect(finished).toMatchObject({
+        status: "FAILED",
+        failureCode: "PREVIEW_PROVIDER_FAILED",
+        noCharge: true
+      });
+      expect(finished.previewUrl).toBeUndefined();
+      expect(events.map((event) => event.type)).toEqual([
+        ...creationEventTypes,
+        "TASK_FAILED"
+      ]);
+    }
+  );
+
+  it("publishes only the second candidate after the first is rejected", async () => {
+    class AttemptCandidateProvider implements ImageProvider {
+      public async runPreview(_input: CreateTaskInput, attempt: 1 | 2): Promise<ProviderCandidate> {
+        return {
+          ...successfulProviderResult(),
+          candidateAssetId: `candidate-${attempt}`,
+          watermarkedPreviewUrl:
+            `https://example.invalid/demo-preview/candidate-${attempt}.jpg`
+        };
+      }
+    }
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new AttemptCandidateProvider(),
+      new FixedPortraitAssetReader(approvedAsset),
+      undefined,
+      undefined,
+      undefined,
+      new SequenceQualityGate([
+        failedGate,
+        {
+          passed: true,
+          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+        }
+      ])
+    );
+    const created = await service.create("user-1", approvedPortraitInput);
+
+    const finished = await service.confirmAndRunPreview("user-1", created.taskId);
+    const events = await service.getEvents("user-1", created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "SUCCEEDED",
+      previewUrl: "https://example.invalid/demo-preview/candidate-2.jpg"
+    });
+    expect(JSON.stringify(events)).not.toContain("candidate-1");
   });
 
   it("rejects a portrait task before persistence when the asset is not approved", async () => {

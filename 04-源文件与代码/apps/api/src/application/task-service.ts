@@ -96,6 +96,7 @@ const permittedProviderSequence: readonly ProviderEventRule[] = [
 
 export class TaskService {
   private readonly qualityGate: PortraitQualityGate;
+  private readonly usesStageADemoProfile: boolean;
 
   public constructor(
     private readonly repository: TaskRepository,
@@ -107,8 +108,9 @@ export class TaskService {
     private readonly planService: PortraitPlanService = new PortraitPlanService(),
     qualityGate?: PortraitQualityGate
   ) {
+    this.usesStageADemoProfile = assetReader instanceof StageADemoAssetReader;
     this.qualityGate = qualityGate ?? (
-      assetReader instanceof StageADemoAssetReader
+      this.usesStageADemoProfile
         ? new DeterministicPortraitQualityGate({ passed: true })
         : new FailClosedPortraitQualityGate()
     );
@@ -273,11 +275,17 @@ export class TaskService {
         copyKey: "quality.started",
         payload: {}
       });
-      const quality = await this.qualityGate.evaluate({
-        candidateAssetId: candidate.candidateAssetId,
-        watermarkedPreviewUrl: candidate.watermarkedPreviewUrl,
-        direction: (task.input as PortraitTaskInput).direction
-      });
+      let quality;
+      try {
+        quality = await this.qualityGate.evaluate({
+          candidateAssetId: candidate.candidateAssetId,
+          watermarkedPreviewUrl: candidate.watermarkedPreviewUrl,
+          direction: (task.input as PortraitTaskInput).direction
+        });
+      } catch {
+        await this.failTask(task, "FIDELITY_GATE_FAILED", "QUALITY_GATE");
+        return this.snapshot(task);
+      }
       if (quality.passed) {
         await this.append(task, {
           type: "QUALITY_CHECK_PASSED",
@@ -349,17 +357,30 @@ export class TaskService {
     result: ProviderCandidate,
     input: CreateTaskInput
   ): void {
-    if (input.tool !== "PORTRAIT_RETOUCH") {
-      throw new Error("INVALID_PROVIDER_RESULT");
-    }
-    const demoProfile = requireStageADemoProfile(
-      input as PortraitTaskInput
-    );
     if (
-      !result.candidateAssetId ||
-      result.watermarkedPreviewUrl !== demoProfile.preview.url
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result) ||
+      !this.hasExactOwnKeys(result, [
+        "candidateAssetId",
+        "watermarkedPreviewUrl",
+        "receipts"
+      ]) ||
+      typeof result.candidateAssetId !== "string" ||
+      result.candidateAssetId.length === 0 ||
+      typeof result.watermarkedPreviewUrl !== "string" ||
+      result.watermarkedPreviewUrl.length === 0 ||
+      !Array.isArray(result.receipts) ||
+      input.tool !== "PORTRAIT_RETOUCH"
     ) {
       throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    if (this.usesStageADemoProfile) {
+      const demoProfile = requireStageADemoProfile(input as PortraitTaskInput);
+      if (result.watermarkedPreviewUrl !== demoProfile.preview.url) {
+        throw new Error("INVALID_PROVIDER_RESULT");
+      }
     }
 
     const expectedSequence =
@@ -387,6 +408,15 @@ export class TaskService {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
+  }
+
+  private hasExactOwnKeys(
+    value: object,
+    expectedKeys: readonly string[]
+  ): boolean {
+    const actualKeys = Reflect.ownKeys(value);
+    return actualKeys.length === expectedKeys.length &&
+      expectedKeys.every((key) => Object.hasOwn(value, key));
   }
 
   private async failTask(
