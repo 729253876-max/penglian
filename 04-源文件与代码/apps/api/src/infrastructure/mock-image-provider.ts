@@ -4,7 +4,7 @@ import type {
 } from "@photo-ai/contracts";
 import type {
   ImageProvider,
-  ProviderRunResult
+  ProviderCandidate
 } from "../application/task-service.js";
 import {
   occurredAt,
@@ -18,7 +18,7 @@ type ProviderEvent = Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">;
 export class MockImageProvider implements ImageProvider {
   public constructor(private readonly clock: Clock = systemClock) {}
 
-  public async runPreview(input: CreateTaskInput): Promise<ProviderRunResult> {
+  public async runPreview(input: CreateTaskInput): Promise<ProviderCandidate> {
     if (input.tool !== "PORTRAIT_RETOUCH") {
       throw new Error("MOCK_PROVIDER_UNSUPPORTED_TOOL");
     }
@@ -31,8 +31,9 @@ export class MockImageProvider implements ImageProvider {
     });
 
     return {
-      previewUrl: demoProfile.preview.url,
-      events: [
+      candidateAssetId: "demo-candidate-portrait-natural",
+      watermarkedPreviewUrl: demoProfile.preview.url,
+      receipts: [
         publicEvent({
           type: "STAGE_STARTED",
           phase: "RETOUCH",
@@ -56,30 +57,6 @@ export class MockImageProvider implements ImageProvider {
           evidenceSource: "PROVIDER_RECEIPT",
           copyKey: "portrait.stage.retouch.completed",
           payload: { stage: "LOCAL_LIGHT_AND_SKIN" }
-        }),
-        publicEvent({
-          type: "QUALITY_CHECK_STARTED",
-          phase: "QUALITY",
-          visibility: "PREVIEW",
-          evidenceSource: "QUALITY_GATE",
-          copyKey: "quality.started",
-          payload: {}
-        }),
-        publicEvent({
-          type: "QUALITY_CHECK_PASSED",
-          phase: "QUALITY",
-          visibility: "PREVIEW",
-          evidenceSource: "QUALITY_GATE",
-          copyKey: "quality.fidelity.passed",
-          payload: { checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"] }
-        }),
-        publicEvent({
-          type: "PREVIEW_READY",
-          phase: "DELIVERY",
-          visibility: "PREVIEW",
-          evidenceSource: "QUALITY_GATE",
-          copyKey: "preview.ready",
-          payload: { watermarked: true, downloadable: false }
         })
       ]
     };

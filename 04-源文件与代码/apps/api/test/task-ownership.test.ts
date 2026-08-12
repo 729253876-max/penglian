@@ -5,10 +5,11 @@ import {
   StageADemoAssetReader,
   TaskService,
   type ImageProvider,
-  type ProviderRunResult,
+  type ProviderCandidate,
   type StoredTask
 } from "../src/application/task-service.js";
 import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
+import { DeterministicPortraitQualityGate } from "../src/application/portrait-quality-gate.js";
 
 const userA = "user-a";
 const userB = "user-b";
@@ -25,25 +26,18 @@ const portraitInput: CreateTaskInput = {
 class CountingImageProvider implements ImageProvider {
   public calls = 0;
 
-  public async runPreview(): Promise<ProviderRunResult> {
+  public async runPreview(): Promise<ProviderCandidate> {
     this.calls += 1;
     return {
-      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
-      events: [
+      candidateAssetId: "candidate-owned",
+      watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+      receipts: [
         providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
         providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
           direction: "NATURAL_RESCUE",
           level: "MODERATE"
         }),
-        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
-        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
-          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
-        }),
-        providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
-          watermarked: true,
-          downloadable: false
-        })
+        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" })
       ]
     };
   }
@@ -83,7 +77,15 @@ function bearer(token: string) {
 
 function buildOwnedApp(provider = new CountingImageProvider()) {
   const repository = new InMemoryTaskRepository();
-  const service = new TaskService(repository, provider, new StageADemoAssetReader());
+  const service = new TaskService(
+    repository,
+    provider,
+    new StageADemoAssetReader(),
+    undefined,
+    undefined,
+    undefined,
+    new DeterministicPortraitQualityGate({ passed: true })
+  );
   return {
     app: buildApp({
       service,
@@ -107,7 +109,11 @@ describe("task ownership", () => {
     const service = new TaskService(
       repository,
       new CountingImageProvider(),
-      new StageADemoAssetReader()
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new DeterministicPortraitQualityGate({ passed: true })
     );
 
     const task = await service.create(userA, portraitInput);
@@ -123,7 +129,11 @@ describe("task ownership", () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
       provider,
-      new StageADemoAssetReader()
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new DeterministicPortraitQualityGate({ passed: true })
     );
     const task = await service.create(userA, portraitInput);
 

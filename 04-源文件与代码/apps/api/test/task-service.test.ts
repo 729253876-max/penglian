@@ -7,7 +7,7 @@ import {
   StageADemoAssetReader,
   TaskService,
   type ImageProvider,
-  type ProviderRunResult,
+  type ProviderCandidate,
   type StoredTask
 } from "../src/application/task-service.js";
 import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
@@ -18,6 +18,11 @@ import type {
 } from "../src/ports/portrait-asset-reader.js";
 import { DeterministicPortraitDiagnosisService } from "../src/application/portrait-diagnosis-service.js";
 import { PortraitPlanService } from "../src/application/portrait-plan-service.js";
+import {
+  DeterministicPortraitQualityGate,
+  type PortraitQualityGate,
+  type QualityGateResult
+} from "../src/application/portrait-quality-gate.js";
 
 const portraitInput: CreateTaskInput = {
   tool: "PORTRAIT_RETOUCH",
@@ -26,6 +31,24 @@ const portraitInput: CreateTaskInput = {
   parameters: { naturalness: 85, detailLevel: 35 }
 };
 const userId = "test-user";
+
+const failedGate: QualityGateResult = {
+  passed: false,
+  checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"],
+  failedChecks: ["IDENTITY"]
+};
+
+const passingGate = () => new DeterministicPortraitQualityGate({ passed: true });
+
+class SequenceQualityGate implements PortraitQualityGate {
+  public constructor(private readonly results: QualityGateResult[]) {}
+
+  public async evaluate(): Promise<QualityGateResult> {
+    const result = this.results.shift();
+    if (!result) throw new Error("missing quality fixture");
+    return result;
+  }
+}
 
 const approvedAsset: PortraitAsset = {
   assetId: "approved-portrait-1",
@@ -63,7 +86,8 @@ function buildTaskService(asset: PortraitAsset | undefined) {
     new FixedPortraitAssetReader(asset),
     undefined,
     new DeterministicPortraitDiagnosisService(),
-    new PortraitPlanService()
+    new PortraitPlanService(),
+    new DeterministicPortraitQualityGate({ passed: true })
   );
   return { service, repository };
 }
@@ -89,49 +113,26 @@ class RecordingTaskRepository extends InMemoryTaskRepository {
 }
 
 class ThrowingImageProvider implements ImageProvider {
-  public async runPreview(): Promise<ProviderRunResult> {
+  public async runPreview(): Promise<ProviderCandidate> {
     throw new Error("provider unavailable");
-  }
-}
-
-class RetryingImageProvider implements ImageProvider {
-  public async runPreview(): Promise<ProviderRunResult> {
-    return {
-      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
-      events: [
-        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_FAILED", "QUALITY", "quality.fidelity.failed", {
-          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"],
-          failedChecks: ["IDENTITY"]
-        }),
-        providerEvent("RETRY_STARTED", "RETOUCH", "portrait.retry.started", { attempt: 2 }),
-        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
-        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
-          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
-        }),
-        providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
-          watermarked: true,
-          downloadable: false
-        })
-      ]
-    };
   }
 }
 
 class CountingImageProvider implements ImageProvider {
   public calls = 0;
+  public readonly attempts: number[] = [];
 
-  public async runPreview(): Promise<ProviderRunResult> {
+  public async runPreview(_input: CreateTaskInput, attempt: 1 | 2): Promise<ProviderCandidate> {
     this.calls += 1;
+    this.attempts.push(attempt);
     return successfulProviderResult();
   }
 }
 
 class FixedResultImageProvider implements ImageProvider {
-  public constructor(private readonly result: ProviderRunResult) {}
+  public constructor(private readonly result: ProviderCandidate) {}
 
-  public async runPreview(): Promise<ProviderRunResult> {
+  public async runPreview(): Promise<ProviderCandidate> {
     return this.result;
   }
 }
@@ -156,33 +157,26 @@ class FirstSaveBarrierRepository extends InMemoryTaskRepository {
   }
 }
 
-function successfulProviderResult(): ProviderRunResult {
+function successfulProviderResult(): ProviderCandidate {
   return {
-    previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
-    events: [
+    candidateAssetId: "candidate-1",
+    watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+    receipts: [
       providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
       providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
         direction: "NATURAL_RESCUE",
         level: "MODERATE"
       }),
-      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
-      providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-      providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
-        checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
-      }),
-      providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
-        watermarked: true,
-        downloadable: false
-      })
+      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" })
     ]
   };
 }
 
 function providerResultWithMalformedFinalEvent(
   mutate: (event: Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">) => void
-): ProviderRunResult {
+): ProviderCandidate {
   const result = successfulProviderResult();
-  const finalEvent = result.events.at(-1);
+  const finalEvent = result.receipts.at(-1);
   if (!finalEvent) {
     throw new Error("provider result must include a preview event");
   }
@@ -218,25 +212,18 @@ class RecordingDirectionImageProvider implements ImageProvider {
     private readonly direction: "NATURAL_RESCUE" | "CLEAR_RESCUE"
   ) {}
 
-  public async runPreview(input: CreateTaskInput): Promise<ProviderRunResult> {
+  public async runPreview(input: CreateTaskInput): Promise<ProviderCandidate> {
     this.input = structuredClone(input);
     return {
-      previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
-      events: [
+      candidateAssetId: "candidate-direction",
+      watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+      receipts: [
         providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
         providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
           direction: this.direction,
           level: "MODERATE"
         }),
-        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
-        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
-          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
-        }),
-        providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
-          watermarked: true,
-          downloadable: false
-        })
+        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" })
       ]
     };
   }
@@ -254,6 +241,57 @@ const creationEventTypes: EditTraceEvent["type"][] = [
 ];
 
 describe("TaskService", () => {
+  it("rejects a provider receipt that claims quality or delivery authority", async () => {
+    const result = successfulProviderResult();
+    result.receipts.push(
+      providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+        checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+      })
+    );
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED",
+      noCharge: true
+    });
+  });
+
+  it("retries exactly once and never exposes a twice-rejected candidate", async () => {
+    const provider = new CountingImageProvider();
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      provider,
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new SequenceQualityGate([failedGate, failedGate])
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+
+    expect(provider.attempts).toEqual([1, 2]);
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    });
+    expect(finished.previewUrl).toBeUndefined();
+  });
+
   it("rejects a portrait task before persistence when the asset is not approved", async () => {
     const { service, repository } = buildTaskService(undefined);
 
@@ -349,7 +387,11 @@ describe("TaskService", () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
       new MockImageProvider(),
-      new StageADemoAssetReader()
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
     );
 
     const created = await service.create(userId, portraitInput);
@@ -382,7 +424,11 @@ describe("TaskService", () => {
     const service = new TaskService(
       repository,
       new MockImageProvider(),
-      new StageADemoAssetReader()
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
     );
 
     const created = await service.create(userId, portraitInput);
@@ -500,7 +546,10 @@ describe("TaskService", () => {
       new InMemoryTaskRepository(),
       new MockImageProvider(clock),
       new StageADemoAssetReader(),
-      clock
+      clock,
+      undefined,
+      undefined,
+      passingGate()
     );
 
     const created = await service.create(userId, portraitInput);
@@ -562,10 +611,21 @@ describe("TaskService", () => {
 
   it("records an actual quality retry and returns to processing before succeeding", async () => {
     const repository = new RecordingTaskRepository();
+    const gate = new SequenceQualityGate([
+      failedGate,
+      {
+        passed: true,
+        checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+      }
+    ]);
     const service = new TaskService(
       repository,
-      new RetryingImageProvider(),
-      new StageADemoAssetReader()
+      new CountingImageProvider(),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      gate
     );
     const created = await service.create(userId, portraitInput);
 
@@ -574,10 +634,15 @@ describe("TaskService", () => {
 
     expect(finished.status).toBe("SUCCEEDED");
     expect(events.map((event) => event.type)).toEqual([
+      "STAGE_STARTED",
+      "PARAM_DIRECTION_APPLIED",
+      "STAGE_COMPLETED",
       "QUALITY_CHECK_STARTED",
       "QUALITY_CHECK_FAILED",
       "RETRY_STARTED",
       "STAGE_STARTED",
+      "PARAM_DIRECTION_APPLIED",
+      "STAGE_COMPLETED",
       "QUALITY_CHECK_STARTED",
       "QUALITY_CHECK_PASSED",
       "PREVIEW_READY"
@@ -592,7 +657,11 @@ describe("TaskService", () => {
     const service = new TaskService(
       repository,
       provider,
-      new StageADemoAssetReader()
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
     );
     const created = await service.create(userId, portraitInput);
 
@@ -610,35 +679,39 @@ describe("TaskService", () => {
   });
 
   it("fails before persistence when a provider inserts an invalid success event", async () => {
-    const invalidResults: ProviderRunResult[] = [
+    const invalidResults: ProviderCandidate[] = [
       {
         ...successfulProviderResult(),
-        previewUrl: "https://example.invalid/demo-preview/unregistered.jpg"
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/unregistered.jpg"
       },
       {
-        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
-        events: [
+        candidateAssetId: "malicious-1",
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+        receipts: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent("TASK_FAILED", "DELIVERY", "preview.provider.failed")
         ]
       },
       {
-        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
-        events: [
+        candidateAssetId: "malicious-2",
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+        receipts: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready")
         ]
       },
       {
-        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
-        events: [
+        candidateAssetId: "malicious-3",
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+        receipts: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent("PARAM_DIRECTION_APPLIED", "QUALITY", "portrait.parameter.direction")
         ]
       },
       {
-        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
-        events: [
+        candidateAssetId: "malicious-4",
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+        receipts: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent(
             "PARAM_DIRECTION_APPLIED",
@@ -648,8 +721,9 @@ describe("TaskService", () => {
         ]
       },
       {
-        previewUrl: "https://example.invalid/demo-preview/malicious.jpg",
-        events: [
+        candidateAssetId: "malicious-5",
+        watermarkedPreviewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
+        receipts: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
             direction: "CLEAR_RESCUE",
@@ -738,7 +812,7 @@ describe("TaskService", () => {
     "futureUnknownField"
   ])("rejects a provider batch containing %s before persisting any provider event", async (key) => {
     const result = successfulProviderResult();
-    const middleEvent = result.events[2];
+    const middleEvent = result.receipts[2];
     if (!middleEvent) {
       throw new Error("provider result must include a middle event");
     }

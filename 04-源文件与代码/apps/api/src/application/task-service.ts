@@ -24,6 +24,11 @@ import {
   type PortraitDiagnosisService
 } from "./portrait-diagnosis-service.js";
 import { PortraitPlanService } from "./portrait-plan-service.js";
+import {
+  DeterministicPortraitQualityGate,
+  FailClosedPortraitQualityGate,
+  type PortraitQualityGate
+} from "./portrait-quality-gate.js";
 
 export interface StoredTask extends TaskSnapshot {
   userId: string;
@@ -45,13 +50,14 @@ export interface TaskRepository {
   ): Promise<EditTraceEvent[]>;
 }
 
-export interface ProviderRunResult {
-  previewUrl: string;
-  events: Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">[];
+export interface ProviderCandidate {
+  candidateAssetId: string;
+  watermarkedPreviewUrl: string;
+  receipts: Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">[];
 }
 
 export interface ImageProvider {
-  runPreview(input: CreateTaskInput): Promise<ProviderRunResult>;
+  runPreview(input: CreateTaskInput, attempt: 1 | 2): Promise<ProviderCandidate>;
 }
 
 export class StageADemoAssetReader implements PortraitAssetReader {
@@ -82,27 +88,15 @@ type ProviderEventRule = readonly [
   string
 ];
 
-const permittedProviderSequences: readonly (readonly ProviderEventRule[])[] = [
-  [
-    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
-    ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
-    ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"],
-    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
-    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed"],
-    ["PREVIEW_READY", "DELIVERY", "preview.ready"]
-  ],
-  [
-    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
-    ["QUALITY_CHECK_FAILED", "QUALITY", "quality.fidelity.failed"],
-    ["RETRY_STARTED", "RETOUCH", "portrait.retry.started"],
-    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
-    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
-    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed"],
-    ["PREVIEW_READY", "DELIVERY", "preview.ready"]
-  ]
+const permittedProviderSequence: readonly ProviderEventRule[] = [
+  ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
+  ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
+  ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"]
 ];
 
 export class TaskService {
+  private readonly qualityGate: PortraitQualityGate;
+
   public constructor(
     private readonly repository: TaskRepository,
     private readonly provider: ImageProvider,
@@ -110,8 +104,15 @@ export class TaskService {
     private readonly clock: Clock = systemClock,
     private readonly diagnosisService: PortraitDiagnosisService =
       new DeterministicPortraitDiagnosisService(),
-    private readonly planService: PortraitPlanService = new PortraitPlanService()
-  ) {}
+    private readonly planService: PortraitPlanService = new PortraitPlanService(),
+    qualityGate?: PortraitQualityGate
+  ) {
+    this.qualityGate = qualityGate ?? (
+      assetReader instanceof StageADemoAssetReader
+        ? new DeterministicPortraitQualityGate({ passed: true })
+        : new FailClosedPortraitQualityGate()
+    );
+  }
 
   public async create(
     userId: string,
@@ -244,31 +245,88 @@ export class TaskService {
     task.status = transition(task.status, "PROCESSING");
     await this.repository.save(task);
 
-    try {
-      const result = await this.provider.runPreview(structuredClone(task.input));
-      this.assertPermittedProviderResult(result, task.input);
-      const events = this.sanitizeProviderEventBatch(task, result.events);
-      for (const event of events) {
-        await this.transitionForEvent(task, event);
-        await this.appendSanitized(task, event);
+    for (const attempt of [1, 2] as const) {
+      let candidate: ProviderCandidate;
+      try {
+        candidate = await this.provider.runPreview(
+          structuredClone(task.input),
+          attempt
+        );
+        this.assertPermittedProviderCandidate(candidate, task.input);
+        const receipts = this.sanitizeProviderEventBatch(task, candidate.receipts);
+        for (const receipt of receipts) {
+          await this.appendSanitized(task, receipt);
+        }
+      } catch {
+        await this.failTask(task, "PREVIEW_PROVIDER_FAILED", "SYSTEM_CHECK");
+        return this.snapshot(task);
       }
-      task.status = transition(task.status, "SUCCEEDED");
-      task.previewUrl = result.previewUrl;
+
+      task.status = transition(task.status, "QUALITY_CHECKING");
       await this.repository.save(task);
-    } catch {
-      task.status = transition(task.status, "FAILED");
-      const failureCode = "PREVIEW_PROVIDER_FAILED" as const;
-      task.failureCode = failureCode;
       await this.append(task, {
-        type: "TASK_FAILED",
-        phase: "DELIVERY",
+        type: "QUALITY_CHECK_STARTED",
+        phase: "QUALITY",
         occurredAt: occurredAt(this.clock),
         visibility: "PREVIEW",
-        evidenceSource: "SYSTEM_CHECK",
-        copyKey: "preview.provider.failed",
-        payload: { code: failureCode }
+        evidenceSource: "QUALITY_GATE",
+        copyKey: "quality.started",
+        payload: {}
       });
-      await this.repository.save(task);
+      const quality = await this.qualityGate.evaluate({
+        candidateAssetId: candidate.candidateAssetId,
+        watermarkedPreviewUrl: candidate.watermarkedPreviewUrl,
+        direction: (task.input as PortraitTaskInput).direction
+      });
+      if (quality.passed) {
+        await this.append(task, {
+          type: "QUALITY_CHECK_PASSED",
+          phase: "QUALITY",
+          occurredAt: occurredAt(this.clock),
+          visibility: "PREVIEW",
+          evidenceSource: "QUALITY_GATE",
+          copyKey: "quality.fidelity.passed",
+          payload: { checks: quality.checks }
+        });
+        await this.append(task, {
+          type: "PREVIEW_READY",
+          phase: "DELIVERY",
+          occurredAt: occurredAt(this.clock),
+          visibility: "PREVIEW",
+          evidenceSource: "QUALITY_GATE",
+          copyKey: "preview.ready",
+          payload: { watermarked: true, downloadable: false }
+        });
+        task.status = transition(task.status, "SUCCEEDED");
+        task.previewUrl = candidate.watermarkedPreviewUrl;
+        await this.repository.save(task);
+        return this.snapshot(task);
+      }
+
+      await this.append(task, {
+        type: "QUALITY_CHECK_FAILED",
+        phase: "QUALITY",
+        occurredAt: occurredAt(this.clock),
+        visibility: "PREVIEW",
+        evidenceSource: "QUALITY_GATE",
+        copyKey: "quality.fidelity.failed",
+        payload: { checks: quality.checks, failedChecks: quality.failedChecks }
+      });
+      if (attempt === 1) {
+        task.status = transition(task.status, "PROCESSING");
+        await this.repository.save(task);
+        await this.append(task, {
+          type: "RETRY_STARTED",
+          phase: "RETOUCH",
+          occurredAt: occurredAt(this.clock),
+          visibility: "PREVIEW",
+          evidenceSource: "SYSTEM_CHECK",
+          copyKey: "portrait.retry.started",
+          payload: { attempt: 2 }
+        });
+      } else {
+        await this.failTask(task, "FIDELITY_GATE_FAILED", "QUALITY_GATE");
+      }
     }
 
     return this.snapshot(task);
@@ -287,23 +345,8 @@ export class TaskService {
     return this.repository.eventsAfter(userId, taskId, afterSequence);
   }
 
-  private async transitionForEvent(
-    task: StoredTask,
-    event: ProviderEvent
-  ): Promise<void> {
-    if (event.type === "QUALITY_CHECK_STARTED") {
-      task.status = transition(task.status, "QUALITY_CHECKING");
-      await this.repository.save(task);
-    }
-
-    if (event.type === "RETRY_STARTED") {
-      task.status = transition(task.status, "PROCESSING");
-      await this.repository.save(task);
-    }
-  }
-
-  private assertPermittedProviderResult(
-    result: ProviderRunResult,
+  private assertPermittedProviderCandidate(
+    result: ProviderCandidate,
     input: CreateTaskInput
   ): void {
     if (input.tool !== "PORTRAIT_RETOUCH") {
@@ -312,26 +355,29 @@ export class TaskService {
     const demoProfile = requireStageADemoProfile(
       input as PortraitTaskInput
     );
-    if (result.previewUrl !== demoProfile.preview.url) {
+    if (
+      !result.candidateAssetId ||
+      result.watermarkedPreviewUrl !== demoProfile.preview.url
+    ) {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
-    const expectedSequence = permittedProviderSequences.find((sequence) =>
-      sequence.length === result.events.length &&
-      sequence.every(([type, phase, copyKey], index) => {
-        const event = result.events[index];
+    const expectedSequence =
+      permittedProviderSequence.length === result.receipts.length &&
+      permittedProviderSequence.every(([type, phase, copyKey], index) => {
+        const event = result.receipts[index];
         return event?.type === type &&
           event.phase === phase &&
           event.copyKey === copyKey &&
-          event.visibility === "PREVIEW";
-      })
-    );
+          event.visibility === "PREVIEW" &&
+          event.evidenceSource === "PROVIDER_RECEIPT";
+      });
 
     if (!expectedSequence) {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
-    const parameterEvent = result.events.find(
+    const parameterEvent = result.receipts.find(
       (event) => event.type === "PARAM_DIRECTION_APPLIED"
     );
     const parameterPayload = parameterEvent?.payload as
@@ -341,17 +387,27 @@ export class TaskService {
       throw new Error("INVALID_PROVIDER_RESULT");
     }
 
-    const previewEvent = result.events.at(-1);
-    const previewPayload = previewEvent?.payload as
-      | Record<string, unknown>
-      | undefined;
-    if (
-      previewEvent?.type !== "PREVIEW_READY" ||
-      previewPayload?.watermarked !== true ||
-      previewPayload.downloadable !== false
-    ) {
-      throw new Error("INVALID_PROVIDER_RESULT");
-    }
+  }
+
+  private async failTask(
+    task: StoredTask,
+    failureCode: "PREVIEW_PROVIDER_FAILED" | "FIDELITY_GATE_FAILED",
+    evidenceSource: "SYSTEM_CHECK" | "QUALITY_GATE"
+  ): Promise<void> {
+    task.status = transition(task.status, "FAILED");
+    task.failureCode = failureCode;
+    task.noCharge = true;
+    delete task.previewUrl;
+    await this.append(task, {
+      type: "TASK_FAILED",
+      phase: "DELIVERY",
+      occurredAt: occurredAt(this.clock),
+      visibility: "PREVIEW",
+      evidenceSource,
+      copyKey: "preview.provider.failed",
+      payload: { code: failureCode }
+    });
+    await this.repository.save(task);
   }
 
   private async requireTask(
@@ -404,6 +460,7 @@ export class TaskService {
       lastSequence: task.lastSequence,
       ...(task.previewUrl ? { previewUrl: task.previewUrl } : {}),
       ...(task.failureCode ? { failureCode: task.failureCode } : {}),
+      ...(task.noCharge ? { noCharge: true as const } : {}),
       ...(task.diagnosis ? { diagnosis: structuredClone(task.diagnosis) } : {}),
       ...(task.selectedDirection
         ? { selectedDirection: task.selectedDirection }
