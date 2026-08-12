@@ -17,6 +17,7 @@ import {
 } from "./routes/identity.js";
 import { registerTaskRoutes, type TaskApiService } from "./routes/tasks.js";
 import { registerUploadRoutes, type UploadApiService } from "./routes/uploads.js";
+import type { PortraitAssetReader } from "./ports/portrait-asset-reader.js";
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
@@ -27,6 +28,7 @@ export interface BuildAppOptions {
   currentUserReader?: CurrentUserReader;
   readiness?: Readiness;
   uploadService?: UploadApiService;
+  portraitAssetReader?: PortraitAssetReader;
 }
 
 export interface Readiness {
@@ -37,7 +39,10 @@ export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? false });
   const service = options.service ?? new TaskService(
     new InMemoryTaskRepository(),
-    new MockImageProvider()
+    new MockImageProvider(),
+    options.portraitAssetReader ?? {
+      findApprovedNormalized: async () => undefined
+    }
   );
   const authenticate = options.sessionAuthenticator
     ? installAuthentication(app, options.sessionAuthenticator)

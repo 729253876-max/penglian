@@ -4,6 +4,7 @@ import type {
   EditTraceEvent
 } from "@photo-ai/contracts";
 import {
+  StageADemoAssetReader,
   TaskService,
   type ImageProvider,
   type ProviderRunResult,
@@ -11,6 +12,12 @@ import {
 } from "../src/application/task-service.js";
 import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
 import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js";
+import type {
+  PortraitAsset,
+  PortraitAssetReader
+} from "../src/ports/portrait-asset-reader.js";
+import { DeterministicPortraitDiagnosisService } from "../src/application/portrait-diagnosis-service.js";
+import { PortraitPlanService } from "../src/application/portrait-plan-service.js";
 
 const portraitInput: CreateTaskInput = {
   tool: "PORTRAIT_RETOUCH",
@@ -19,6 +26,47 @@ const portraitInput: CreateTaskInput = {
   parameters: { naturalness: 85, detailLevel: 35 }
 };
 const userId = "test-user";
+
+const approvedAsset: PortraitAsset = {
+  assetId: "approved-portrait-1",
+  userId: "user-1",
+  uploadSessionId: "upload-1",
+  objectKey: "private/approved-portrait-1",
+  width: 2400,
+  height: 3200,
+  qualityWarning: true
+};
+
+const approvedPortraitInput: CreateTaskInput = {
+  ...portraitInput,
+  inputAssetId: approvedAsset.assetId
+};
+
+class FixedPortraitAssetReader implements PortraitAssetReader {
+  public constructor(private readonly asset: PortraitAsset | undefined) {}
+
+  public async findApprovedNormalized(
+    userId: string,
+    assetId: string
+  ): Promise<PortraitAsset | undefined> {
+    return this.asset?.userId === userId && this.asset.assetId === assetId
+      ? structuredClone(this.asset)
+      : undefined;
+  }
+}
+
+function buildTaskService(asset: PortraitAsset | undefined) {
+  const repository = new RecordingTaskRepository();
+  const service = new TaskService(
+    repository,
+    new MockImageProvider(),
+    new FixedPortraitAssetReader(asset),
+    undefined,
+    new DeterministicPortraitDiagnosisService(),
+    new PortraitPlanService()
+  );
+  return { service, repository };
+}
 
 class RecordingTaskRepository extends InMemoryTaskRepository {
   public readonly savedStatuses: StoredTask["status"][] = [];
@@ -163,11 +211,72 @@ function providerEvent(
   };
 }
 
+const creationEventTypes: EditTraceEvent["type"][] = [
+  "ASSET_APPROVED",
+  "DIAGNOSIS_STARTED",
+  "DIAGNOSIS_FINDING",
+  "DIAGNOSIS_FINDING",
+  "PROTECTION_RECORDED",
+  "PLAN_READY",
+  "PLAN_READY",
+  "PLAN_SELECTED"
+];
+
 describe("TaskService", () => {
+  it("rejects a portrait task before persistence when the asset is not approved", async () => {
+    const { service, repository } = buildTaskService(undefined);
+
+    await expect(service.create("user-1", approvedPortraitInput)).rejects.toThrow(
+      "ASSET_NOT_APPROVED"
+    );
+    expect(repository.savedStatuses).toEqual([]);
+  });
+
+  it("rejects a cross-user portrait asset before persistence", async () => {
+    const { service, repository } = buildTaskService(approvedAsset);
+
+    await expect(service.create("user-2", approvedPortraitInput)).rejects.toThrow(
+      "ASSET_NOT_APPROVED"
+    );
+    expect(repository.savedStatuses).toEqual([]);
+  });
+
+  it("returns diagnosis and records both plans for an approved asset", async () => {
+    const { service } = buildTaskService(approvedAsset);
+
+    const created = await service.create("user-1", approvedPortraitInput);
+    const events = await service.getEvents("user-1", created.taskId, 0);
+
+    expect(created).toMatchObject({
+      status: "AWAITING_CONFIRMATION",
+      diagnosis: {
+        findings: ["LIGHT_NOISE", "LIGHT_BLUR"],
+        protections: expect.arrayContaining(["IDENTITY", "COMPOSITION"])
+      },
+      selectedDirection: "NATURAL_RESCUE"
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "ASSET_APPROVED",
+      "DIAGNOSIS_STARTED",
+      "DIAGNOSIS_FINDING",
+      "DIAGNOSIS_FINDING",
+      "PROTECTION_RECORDED",
+      "PLAN_READY",
+      "PLAN_READY",
+      "PLAN_SELECTED"
+    ]);
+    expect(events.filter((event) => event.type === "PLAN_READY").map((event) => event.payload))
+      .toEqual([
+        { direction: "NATURAL_RESCUE" },
+        { direction: "CLEAR_RESCUE" }
+      ]);
+  });
+
   it("emits truthful, continuously sequenced events and produces a watermarked preview", async () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
-      new MockImageProvider()
+      new MockImageProvider(),
+      new StageADemoAssetReader()
     );
 
     const created = await service.create(userId, portraitInput);
@@ -181,9 +290,7 @@ describe("TaskService", () => {
 
     const events = await service.getEvents(userId, created.taskId, 0);
     expect(events.map((event) => event.type)).toEqual([
-      "DIAGNOSIS_STARTED",
-      "DIAGNOSIS_FINDING",
-      "PLAN_READY",
+      ...creationEventTypes,
       "STAGE_STARTED",
       "PARAM_DIRECTION_APPLIED",
       "STAGE_COMPLETED",
@@ -191,19 +298,30 @@ describe("TaskService", () => {
       "QUALITY_CHECK_PASSED",
       "PREVIEW_READY"
     ]);
-    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(events.map((event) => event.sequence)).toEqual(
+      Array.from({ length: 14 }, (_, index) => index + 1)
+    );
     expect(events.at(-1)?.payload).toEqual({ watermarked: true, downloadable: false });
   });
 
   it("persists only legal states on the documented preview path", async () => {
     const repository = new RecordingTaskRepository();
-    const service = new TaskService(repository, new MockImageProvider());
+    const service = new TaskService(
+      repository,
+      new MockImageProvider(),
+      new StageADemoAssetReader()
+    );
 
     const created = await service.create(userId, portraitInput);
     await service.confirmAndRunPreview(userId, created.taskId);
 
     expect(repository.savedStatuses).toEqual([
       "REVIEWING",
+      "REVIEWING",
+      "DIAGNOSING",
+      "DIAGNOSING",
+      "DIAGNOSING",
+      "DIAGNOSING",
       "DIAGNOSING",
       "DIAGNOSING",
       "DIAGNOSING",
@@ -245,7 +363,11 @@ describe("TaskService", () => {
     const repository = new InMemoryTaskRepository();
     const save = vi.spyOn(repository, "save");
     const appendEvent = vi.spyOn(repository, "appendEvent");
-    const service = new TaskService(repository, new MockImageProvider());
+    const service = new TaskService(
+      repository,
+      new MockImageProvider(),
+      new StageADemoAssetReader()
+    );
 
     await expect(service.create(userId, input)).rejects.toThrow("STAGE_A_UNSUPPORTED_TOOL");
 
@@ -282,7 +404,11 @@ describe("TaskService", () => {
     const repository = new InMemoryTaskRepository();
     const save = vi.spyOn(repository, "save");
     const appendEvent = vi.spyOn(repository, "appendEvent");
-    const service = new TaskService(repository, new MockImageProvider());
+    const service = new TaskService(
+      repository,
+      new MockImageProvider(),
+      new StageADemoAssetReader()
+    );
 
     await expect(service.create(userId, input)).rejects.toThrow(
       "STAGE_A_UNSUPPORTED_DEMO_INPUT"
@@ -300,6 +426,7 @@ describe("TaskService", () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
       new MockImageProvider(clock),
+      new StageADemoAssetReader(),
       clock
     );
 
@@ -307,7 +434,8 @@ describe("TaskService", () => {
     const finished = await service.confirmAndRunPreview(userId, created.taskId);
     const events = await service.getEvents(userId, created.taskId, 0);
 
-    expect(events.slice(0, 3)).toMatchObject([
+    expect(events.slice(0, 8)).toMatchObject([
+      { type: "ASSET_APPROVED", payload: { metadataRemoved: true } },
       {
         type: "DIAGNOSIS_STARTED",
         copyKey: "portrait.diagnosis.started",
@@ -316,13 +444,17 @@ describe("TaskService", () => {
       {
         type: "DIAGNOSIS_FINDING",
         copyKey: "portrait.diagnosis.light",
-        payload: { finding: "FACE_UNDEREXPOSED" }
+        payload: { finding: "LIGHT_NOISE" }
       },
+      { type: "DIAGNOSIS_FINDING", payload: { finding: "LIGHT_BLUR" } },
+      { type: "PROTECTION_RECORDED" },
       {
         type: "PLAN_READY",
         copyKey: "portrait.plan.natural",
         payload: { direction: "NATURAL_RESCUE" }
-      }
+      },
+      { type: "PLAN_READY", payload: { direction: "CLEAR_RESCUE" } },
+      { type: "PLAN_SELECTED", payload: { direction: "NATURAL_RESCUE" } }
     ]);
     expect(events.every((event) => event.occurredAt === occurredAt)).toBe(true);
     expect(finished.previewUrl).toBe(
@@ -333,7 +465,8 @@ describe("TaskService", () => {
   it("records a truthful failure when the provider cannot produce a preview", async () => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
-      new ThrowingImageProvider()
+      new ThrowingImageProvider(),
+      new StageADemoAssetReader()
     );
     const created = await service.create(userId, portraitInput);
 
@@ -344,9 +477,7 @@ describe("TaskService", () => {
       failureCode: "PREVIEW_PROVIDER_FAILED"
     });
     await expect(service.getEvents(userId, created.taskId, 0)).resolves.toMatchObject([
-      { type: "DIAGNOSIS_STARTED" },
-      { type: "DIAGNOSIS_FINDING" },
-      { type: "PLAN_READY" },
+      ...creationEventTypes.map((type) => ({ type })),
       {
         type: "TASK_FAILED",
         phase: "DELIVERY",
@@ -358,11 +489,15 @@ describe("TaskService", () => {
 
   it("records an actual quality retry and returns to processing before succeeding", async () => {
     const repository = new RecordingTaskRepository();
-    const service = new TaskService(repository, new RetryingImageProvider());
+    const service = new TaskService(
+      repository,
+      new RetryingImageProvider(),
+      new StageADemoAssetReader()
+    );
     const created = await service.create(userId, portraitInput);
 
     const finished = await service.confirmAndRunPreview(userId, created.taskId);
-    const events = await service.getEvents(userId, created.taskId, 3);
+    const events = await service.getEvents(userId, created.taskId, 8);
 
     expect(finished.status).toBe("SUCCEEDED");
     expect(events.map((event) => event.type)).toEqual([
@@ -381,7 +516,11 @@ describe("TaskService", () => {
   it("claims confirmation once when two requests arrive concurrently", async () => {
     const repository = new InMemoryTaskRepository();
     const provider = new CountingImageProvider();
-    const service = new TaskService(repository, provider);
+    const service = new TaskService(
+      repository,
+      provider,
+      new StageADemoAssetReader()
+    );
     const created = await service.create(userId, portraitInput);
 
     const results = await Promise.allSettled([
@@ -394,7 +533,7 @@ describe("TaskService", () => {
       { reason: new Error("TASK_CONFIRMATION_CONFLICT") }
     ]);
     expect(provider.calls).toBe(1);
-    await expect(service.getEvents(userId, created.taskId, 0)).resolves.toHaveLength(9);
+    await expect(service.getEvents(userId, created.taskId, 0)).resolves.toHaveLength(14);
   });
 
   it("fails before persistence when a provider inserts an invalid success event", async () => {
@@ -459,7 +598,8 @@ describe("TaskService", () => {
     for (const result of invalidResults) {
       const service = new TaskService(
         new InMemoryTaskRepository(),
-        new FixedResultImageProvider(result)
+        new FixedResultImageProvider(result),
+        new StageADemoAssetReader()
       );
       const created = await service.create(userId, portraitInput);
 
@@ -471,9 +611,7 @@ describe("TaskService", () => {
         failureCode: "PREVIEW_PROVIDER_FAILED"
       });
       expect(events.map((event) => event.type)).toEqual([
-        "DIAGNOSIS_STARTED",
-        "DIAGNOSIS_FINDING",
-        "PLAN_READY",
+        ...creationEventTypes,
         "TASK_FAILED"
       ]);
     }
@@ -496,7 +634,8 @@ describe("TaskService", () => {
   ])("does not persist a valid provider prefix before rejecting %s", async (_name, result) => {
     const service = new TaskService(
       new InMemoryTaskRepository(),
-      new FixedResultImageProvider(result)
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader()
     );
     const created = await service.create(userId, portraitInput);
 
@@ -508,12 +647,12 @@ describe("TaskService", () => {
       failureCode: "PREVIEW_PROVIDER_FAILED"
     });
     expect(events.map((event) => event.type)).toEqual([
-      "DIAGNOSIS_STARTED",
-      "DIAGNOSIS_FINDING",
-      "PLAN_READY",
+      ...creationEventTypes,
       "TASK_FAILED"
     ]);
-    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
+    expect(events.map((event) => event.sequence)).toEqual(
+      Array.from({ length: 9 }, (_, index) => index + 1)
+    );
   });
 
   it.each([
@@ -537,7 +676,8 @@ describe("TaskService", () => {
 
     const service = new TaskService(
       new InMemoryTaskRepository(),
-      new FixedResultImageProvider(result)
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader()
     );
     const created = await service.create(userId, portraitInput);
 
@@ -549,9 +689,7 @@ describe("TaskService", () => {
       failureCode: "PREVIEW_PROVIDER_FAILED"
     });
     expect(events.map((event) => event.type)).toEqual([
-      "DIAGNOSIS_STARTED",
-      "DIAGNOSIS_FINDING",
-      "PLAN_READY",
+      ...creationEventTypes,
       "TASK_FAILED"
     ]);
     expect(events.some((event) =>
@@ -561,7 +699,11 @@ describe("TaskService", () => {
 
   it("isolates the input captured before the first asynchronous save", async () => {
     const repository = new FirstSaveBarrierRepository();
-    const service = new TaskService(repository, new MockImageProvider());
+    const service = new TaskService(
+      repository,
+      new MockImageProvider(),
+      new StageADemoAssetReader()
+    );
     const input = structuredClone(portraitInput);
 
     const creating = service.create(userId, input);
@@ -572,7 +714,7 @@ describe("TaskService", () => {
 
     const events = await service.getEvents(userId, created.taskId, 0);
     expect(events.at(-1)).toMatchObject({
-      type: "PLAN_READY",
+      type: "PLAN_SELECTED",
       payload: { direction: "NATURAL_RESCUE" }
     });
   });

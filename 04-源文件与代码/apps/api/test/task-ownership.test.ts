@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { CreateTaskInput, EditTraceEvent } from "@photo-ai/contracts";
 import { buildApp } from "../src/app.js";
 import {
+  StageADemoAssetReader,
   TaskService,
   type ImageProvider,
   type ProviderRunResult,
@@ -82,7 +83,7 @@ function bearer(token: string) {
 
 function buildOwnedApp(provider = new CountingImageProvider()) {
   const repository = new InMemoryTaskRepository();
-  const service = new TaskService(repository, provider);
+  const service = new TaskService(repository, provider, new StageADemoAssetReader());
   return {
     app: buildApp({
       service,
@@ -103,7 +104,11 @@ function buildOwnedApp(provider = new CountingImageProvider()) {
 describe("task ownership", () => {
   it("stores an owner and hides a task and its events from another user", async () => {
     const repository = new InMemoryTaskRepository();
-    const service = new TaskService(repository, new CountingImageProvider());
+    const service = new TaskService(
+      repository,
+      new CountingImageProvider(),
+      new StageADemoAssetReader()
+    );
 
     const task = await service.create(userA, portraitInput);
 
@@ -115,7 +120,11 @@ describe("task ownership", () => {
 
   it("claims a confirmation only for its owner and never starts another user's provider run", async () => {
     const provider = new CountingImageProvider();
-    const service = new TaskService(new InMemoryTaskRepository(), provider);
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      provider,
+      new StageADemoAssetReader()
+    );
     const task = await service.create(userA, portraitInput);
 
     await expect(service.confirmAndRunPreview(userB, task.taskId))

@@ -15,6 +15,15 @@ import {
   type PortraitTaskInput
 } from "../domain/stage-a-demo-catalog.js";
 import { transition } from "../domain/task-machine.js";
+import type {
+  PortraitAsset,
+  PortraitAssetReader
+} from "../ports/portrait-asset-reader.js";
+import {
+  DeterministicPortraitDiagnosisService,
+  type PortraitDiagnosisService
+} from "./portrait-diagnosis-service.js";
+import { PortraitPlanService } from "./portrait-plan-service.js";
 
 export interface StoredTask extends TaskSnapshot {
   userId: string;
@@ -43,6 +52,26 @@ export interface ProviderRunResult {
 
 export interface ImageProvider {
   runPreview(input: CreateTaskInput): Promise<ProviderRunResult>;
+}
+
+export class StageADemoAssetReader implements PortraitAssetReader {
+  public async findApprovedNormalized(
+    userId: string,
+    assetId: string
+  ): Promise<PortraitAsset | undefined> {
+    if (assetId !== "demo-portrait-001") {
+      return undefined;
+    }
+    return {
+      assetId,
+      userId,
+      uploadSessionId: "stage-a-demo-upload",
+      objectKey: "stage-a-demo/portrait-natural",
+      width: 2400,
+      height: 3200,
+      qualityWarning: true
+    };
+  }
 }
 
 type ProviderEvent = Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">;
@@ -77,7 +106,11 @@ export class TaskService {
   public constructor(
     private readonly repository: TaskRepository,
     private readonly provider: ImageProvider,
-    private readonly clock: Clock = systemClock
+    private readonly assetReader: PortraitAssetReader,
+    private readonly clock: Clock = systemClock,
+    private readonly diagnosisService: PortraitDiagnosisService =
+      new DeterministicPortraitDiagnosisService(),
+    private readonly planService: PortraitPlanService = new PortraitPlanService()
   ) {}
 
   public async create(
@@ -88,8 +121,20 @@ export class TaskService {
       throw new Error("STAGE_A_UNSUPPORTED_TOOL");
     }
 
-    const demoProfile = requireStageADemoProfile(input);
     const capturedInput = structuredClone(input);
+    if (this.assetReader instanceof StageADemoAssetReader) {
+      requireStageADemoProfile(capturedInput);
+    }
+    const asset = await this.assetReader.findApprovedNormalized(
+      userId,
+      capturedInput.inputAssetId
+    );
+    if (!asset) {
+      throw new Error("ASSET_NOT_APPROVED");
+    }
+    const diagnosis = await this.diagnosisService.diagnose(asset);
+    const naturalPlan = this.planService.plan(diagnosis, "NATURAL_RESCUE");
+    const clearPlan = this.planService.plan(diagnosis, "CLEAR_RESCUE");
 
     const task: StoredTask = {
       taskId: randomUUID(),
@@ -97,9 +142,21 @@ export class TaskService {
       status: "REVIEWING",
       tool: capturedInput.tool,
       lastSequence: 0,
-      input: capturedInput
+      input: capturedInput,
+      diagnosis: structuredClone(diagnosis),
+      selectedDirection: "NATURAL_RESCUE"
     };
     await this.repository.save(task);
+
+    await this.append(task, {
+      type: "ASSET_APPROVED",
+      phase: "UPLOAD",
+      occurredAt: occurredAt(this.clock),
+      visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
+      copyKey: "upload.asset.approved",
+      payload: { metadataRemoved: true }
+    });
 
     task.status = transition(task.status, "DIAGNOSING");
     await this.repository.save(task);
@@ -112,14 +169,25 @@ export class TaskService {
       copyKey: "portrait.diagnosis.started",
       payload: {}
     });
+    for (const finding of diagnosis.findings) {
+      await this.append(task, {
+        type: "DIAGNOSIS_FINDING",
+        phase: "DIAGNOSIS",
+        occurredAt: occurredAt(this.clock),
+        visibility: "PREVIEW",
+        evidenceSource: "SYSTEM_CHECK",
+        copyKey: "portrait.diagnosis.light",
+        payload: { finding }
+      });
+    }
     await this.append(task, {
-      type: "DIAGNOSIS_FINDING",
+      type: "PROTECTION_RECORDED",
       phase: "DIAGNOSIS",
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
       evidenceSource: "SYSTEM_CHECK",
-      copyKey: demoProfile.diagnosis.copyKey,
-      payload: { finding: demoProfile.diagnosis.finding }
+      copyKey: "portrait.protection.recorded",
+      payload: { protections: diagnosis.protections }
     });
     await this.append(task, {
       type: "PLAN_READY",
@@ -127,8 +195,26 @@ export class TaskService {
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
       evidenceSource: "SYSTEM_CHECK",
-      copyKey: demoProfile.plan.copyKey,
-      payload: { direction: demoProfile.direction }
+      copyKey: "portrait.plan.natural",
+      payload: { direction: naturalPlan.direction }
+    });
+    await this.append(task, {
+      type: "PLAN_READY",
+      phase: "PLAN",
+      occurredAt: occurredAt(this.clock),
+      visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
+      copyKey: "portrait.plan.natural",
+      payload: { direction: clearPlan.direction }
+    });
+    await this.append(task, {
+      type: "PLAN_SELECTED",
+      phase: "PLAN",
+      occurredAt: occurredAt(this.clock),
+      visibility: "PREVIEW",
+      evidenceSource: "USER_SELECTION",
+      copyKey: "portrait.plan.selected",
+      payload: { direction: naturalPlan.direction }
     });
     task.status = transition(task.status, "AWAITING_CONFIRMATION");
     await this.repository.save(task);
@@ -306,7 +392,11 @@ export class TaskService {
       tool: task.tool,
       lastSequence: task.lastSequence,
       ...(task.previewUrl ? { previewUrl: task.previewUrl } : {}),
-      ...(task.failureCode ? { failureCode: task.failureCode } : {})
+      ...(task.failureCode ? { failureCode: task.failureCode } : {}),
+      ...(task.diagnosis ? { diagnosis: structuredClone(task.diagnosis) } : {}),
+      ...(task.selectedDirection
+        ? { selectedDirection: task.selectedDirection }
+        : {})
     };
   }
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { EditTraceEvent, TaskSnapshot } from "@photo-ai/contracts";
 import { buildApp, type BuildAppOptions } from "../src/app.js";
 import type { TaskApiService } from "../src/routes/tasks.js";
+import { StageADemoAssetReader } from "../src/application/task-service.js";
 
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
@@ -13,6 +14,7 @@ const portraitInput = {
 function buildTaskApp(options: BuildAppOptions = {}) {
   const app = buildApp({
     ...options,
+    portraitAssetReader: new StageADemoAssetReader(),
     sessionAuthenticator: {
       authenticate: async () => ({ userId: "task-api-user" })
     }
@@ -69,7 +71,7 @@ describe("tasks API", () => {
       expect(response.json()).toMatchObject({
         status: "AWAITING_CONFIRMATION",
         tool: "PORTRAIT_RETOUCH",
-        lastSequence: 3
+        lastSequence: 8
       });
     } finally {
       await app.close();
@@ -89,7 +91,7 @@ describe("tasks API", () => {
       expect(preview.json()).toMatchObject({
         taskId: task.taskId,
         status: "SUCCEEDED",
-        lastSequence: 9,
+        lastSequence: 14,
         previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
       });
 
@@ -101,7 +103,7 @@ describe("tasks API", () => {
       expect(read.json()).toMatchObject({
         taskId: task.taskId,
         status: "SUCCEEDED",
-        lastSequence: 9
+        lastSequence: 14
       });
     } finally {
       await app.close();
@@ -245,8 +247,8 @@ describe("tasks API", () => {
   });
 
   it.each([
-    ["zero", "0", 3],
-    ["an ordinary decimal integer", "2", 3]
+    ["zero", "0", 8],
+    ["an ordinary decimal integer", "2", 8]
   ])("accepts afterSequence %s", async (_name, afterSequence, nextSequence) => {
     const app = buildTaskApp();
     try {
@@ -274,18 +276,23 @@ describe("tasks API", () => {
       expect(incremental.statusCode).toBe(200);
       expect(incremental.json()).toMatchObject({
         items: [
-          { sequence: 2, type: "DIAGNOSIS_FINDING" },
-          { sequence: 3, type: "PLAN_READY" }
+          { sequence: 2, type: "DIAGNOSIS_STARTED" },
+          { sequence: 3, type: "DIAGNOSIS_FINDING" },
+          { sequence: 4, type: "DIAGNOSIS_FINDING" },
+          { sequence: 5, type: "PROTECTION_RECORDED" },
+          { sequence: 6, type: "PLAN_READY" },
+          { sequence: 7, type: "PLAN_READY" },
+          { sequence: 8, type: "PLAN_SELECTED" }
         ],
-        nextSequence: 3
+        nextSequence: 8
       });
 
       const empty = await app.inject({
         method: "GET",
-        url: `/v1/tasks/${task.taskId}/events?afterSequence=3`
+        url: `/v1/tasks/${task.taskId}/events?afterSequence=8`
       });
       expect(empty.statusCode).toBe(200);
-      expect(empty.json()).toEqual({ items: [], nextSequence: 3 });
+      expect(empty.json()).toEqual({ items: [], nextSequence: 8 });
     } finally {
       await app.close();
     }
@@ -309,8 +316,23 @@ describe("tasks API", () => {
         url: `/v1/tasks/${task.taskId}/events?afterSequence=0`
       });
       expect(events.statusCode).toBe(200);
-      expect(events.json().items).toHaveLength(9);
-      expect(events.json().nextSequence).toBe(9);
+      expect(events.json().items.map((event: EditTraceEvent) => event.type)).toEqual([
+        "ASSET_APPROVED",
+        "DIAGNOSIS_STARTED",
+        "DIAGNOSIS_FINDING",
+        "DIAGNOSIS_FINDING",
+        "PROTECTION_RECORDED",
+        "PLAN_READY",
+        "PLAN_READY",
+        "PLAN_SELECTED",
+        "STAGE_STARTED",
+        "PARAM_DIRECTION_APPLIED",
+        "STAGE_COMPLETED",
+        "QUALITY_CHECK_STARTED",
+        "QUALITY_CHECK_PASSED",
+        "PREVIEW_READY"
+      ]);
+      expect(events.json().nextSequence).toBe(14);
     } finally {
       await app.close();
     }
