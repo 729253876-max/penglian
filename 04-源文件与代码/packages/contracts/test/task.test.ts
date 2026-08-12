@@ -50,6 +50,70 @@ const contractTypeWitness: [
 
 void contractTypeWitness;
 
+const strictPortraitInput: CreateTaskInput = {
+  tool: "PORTRAIT_RETOUCH",
+  inputAssetId: "asset-strict",
+  // @ts-expect-error legacy Stage-A directions are not public contract values
+  direction: "NATURAL",
+  parameters: { naturalness: 85, detailLevel: 35 }
+};
+
+// @ts-expect-error every public trace event requires evidenceSource
+const traceWithoutEvidence: EditTraceEvent = {
+  eventId: "evt-missing-evidence",
+  taskId: "task-type",
+  sequence: 1,
+  type: "PLAN_READY",
+  phase: "PLAN",
+  occurredAt: "2026-07-26T00:00:00.000Z",
+  visibility: "PREVIEW",
+  copyKey: "portrait.plan.natural",
+  payload: { direction: "NATURAL_RESCUE" }
+};
+
+const traceWithLegacyCopyKey: EditTraceEvent = {
+  eventId: "evt-legacy-copy",
+  taskId: "task-type",
+  sequence: 1,
+  type: "QUALITY_CHECK_PASSED",
+  phase: "QUALITY",
+  occurredAt: "2026-07-26T00:00:00.000Z",
+  visibility: "PREVIEW",
+  evidenceSource: "QUALITY_GATE",
+  // @ts-expect-error old copy keys are not public contract values
+  copyKey: "quality.identity.passed",
+  payload: { checks: ["IDENTITY"] }
+};
+
+const traceWithArbitraryPayload: EditTraceEvent = {
+  eventId: "evt-arbitrary-payload",
+  taskId: "task-type",
+  sequence: 1,
+  type: "PLAN_READY",
+  phase: "PLAN",
+  occurredAt: "2026-07-26T00:00:00.000Z",
+  visibility: "PREVIEW",
+  evidenceSource: "SYSTEM_CHECK",
+  copyKey: "portrait.plan.natural",
+  // @ts-expect-error arbitrary payload fields are not public contract values
+  payload: { hiddenReasoning: "must-not-ship" }
+};
+
+void strictPortraitInput;
+void traceWithoutEvidence;
+void traceWithLegacyCopyKey;
+void traceWithArbitraryPayload;
+
+const schemaOutputMatchesPublicType: EditTraceEvent = EditTraceEventSchema.parse(
+  contractTypeWitness[2]
+);
+const createInputOutputMatchesPublicType: CreateTaskInput = CreateTaskInputSchema.parse(
+  contractTypeWitness[3]
+);
+
+void schemaOutputMatchesPublicType;
+void createInputOutputMatchesPublicType;
+
 describe("task contracts", () => {
   it("accepts a faithful portrait task", () => {
     expect(CreateTaskInputSchema.parse({

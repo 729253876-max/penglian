@@ -15,8 +15,8 @@ import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js"
 const portraitInput: CreateTaskInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 };
 const userId = "test-user";
 
@@ -52,11 +52,16 @@ class RetryingImageProvider implements ImageProvider {
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
       events: [
         providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_FAILED", "QUALITY", "quality.identity.failed"),
+        providerEvent("QUALITY_CHECK_FAILED", "QUALITY", "quality.fidelity.failed", {
+          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"],
+          failedChecks: ["IDENTITY"]
+        }),
         providerEvent("RETRY_STARTED", "RETOUCH", "portrait.retry.started", { attempt: 2 }),
-        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retry.started"),
-        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.retry.started"),
-        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+        providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
+        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+        }),
         providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
           watermarked: true,
           downloadable: false
@@ -107,14 +112,16 @@ function successfulProviderResult(): ProviderRunResult {
   return {
     previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
     events: [
-      providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+      providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
       providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
-        direction: "NATURAL",
+        direction: "NATURAL_RESCUE",
         level: "MODERATE"
       }),
-      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"),
+      providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
       providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-      providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+      providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+        checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+      }),
       providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
         watermarked: true,
         downloadable: false
@@ -146,6 +153,11 @@ function providerEvent(
     phase,
     occurredAt: "2026-07-26T00:00:00.000Z",
     visibility: "PREVIEW",
+    evidenceSource: type === "RETRY_STARTED"
+      ? "SYSTEM_CHECK"
+      : type.startsWith("QUALITY_") || type === "PREVIEW_READY"
+        ? "QUALITY_GATE"
+        : "PROVIDER_RECEIPT",
     copyKey,
     payload
   };
@@ -253,7 +265,7 @@ describe("TaskService", () => {
       "an unsupported direction",
       {
         ...portraitInput,
-        direction: "WARM" as const
+        direction: "CLEAR_RESCUE" as const
       }
     ],
     [
@@ -304,12 +316,12 @@ describe("TaskService", () => {
       {
         type: "DIAGNOSIS_FINDING",
         copyKey: "portrait.diagnosis.light",
-        payload: { finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT" }
+        payload: { finding: "FACE_UNDEREXPOSED" }
       },
       {
         type: "PLAN_READY",
         copyKey: "portrait.plan.natural",
-        payload: { direction: "NATURAL" }
+        payload: { direction: "NATURAL_RESCUE" }
       }
     ]);
     expect(events.every((event) => event.occurredAt === occurredAt)).toBe(true);
@@ -428,12 +440,14 @@ describe("TaskService", () => {
         events: [
           providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
           providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
-            direction: "WARM",
+            direction: "CLEAR_RESCUE",
             level: "MODERATE"
           }),
           providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"),
           providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-          providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+          providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+            checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+          }),
           providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
             watermarked: true,
             downloadable: false
@@ -551,7 +565,7 @@ describe("TaskService", () => {
     const input = structuredClone(portraitInput);
 
     const creating = service.create(userId, input);
-    input.direction = "WARM";
+    input.direction = "CLEAR_RESCUE";
     input.parameters.naturalness = 5;
     repository.release();
     const created = await creating;
@@ -559,7 +573,7 @@ describe("TaskService", () => {
     const events = await service.getEvents(userId, created.taskId, 0);
     expect(events.at(-1)).toMatchObject({
       type: "PLAN_READY",
-      payload: { direction: "NATURAL" }
+      payload: { direction: "NATURAL_RESCUE" }
     });
   });
 
@@ -574,7 +588,7 @@ describe("TaskService", () => {
       input: structuredClone(portraitInput)
     };
     const firstEvent: EditTraceEvent = {
-      ...providerEvent("PLAN_READY", "PLAN", "portrait.plan.natural", { direction: "NATURAL" }),
+      ...providerEvent("PLAN_READY", "PLAN", "portrait.plan.natural", { direction: "NATURAL_RESCUE" }),
       eventId: "event-1",
       taskId: storedTask.taskId,
       sequence: 1
@@ -595,10 +609,10 @@ describe("TaskService", () => {
     await expect(repository.appendEvent({ ...firstEvent, eventId: "event-gap", sequence: 3 }))
       .rejects.toThrow("EVENT_SEQUENCE_CONFLICT");
     await expect(repository.findForUser(userId, storedTask.taskId)).resolves.toMatchObject({
-      input: { parameters: { naturalness: 80 } }
+      input: { parameters: { naturalness: 85 } }
     });
     await expect(repository.eventsAfter(userId, storedTask.taskId, 0)).resolves.toMatchObject([
-      { payload: { direction: "NATURAL" } }
+      { payload: { direction: "NATURAL_RESCUE" } }
     ]);
   });
 });

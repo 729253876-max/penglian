@@ -37,6 +37,7 @@ export class MockImageProvider implements ImageProvider {
           type: "STAGE_STARTED",
           phase: "RETOUCH",
           visibility: "PREVIEW",
+          evidenceSource: "PROVIDER_RECEIPT",
           copyKey: "portrait.stage.retouch.started",
           payload: { stage: "LOCAL_LIGHT_AND_SKIN" }
         }),
@@ -44,6 +45,7 @@ export class MockImageProvider implements ImageProvider {
           type: "PARAM_DIRECTION_APPLIED",
           phase: "RETOUCH",
           visibility: "PREVIEW",
+          evidenceSource: "PROVIDER_RECEIPT",
           copyKey: "portrait.parameter.direction",
           payload: { direction: demoProfile.direction, level: "MODERATE" }
         }),
@@ -51,6 +53,7 @@ export class MockImageProvider implements ImageProvider {
           type: "STAGE_COMPLETED",
           phase: "RETOUCH",
           visibility: "PREVIEW",
+          evidenceSource: "PROVIDER_RECEIPT",
           copyKey: "portrait.stage.retouch.completed",
           payload: { stage: "LOCAL_LIGHT_AND_SKIN" }
         }),
@@ -58,6 +61,7 @@ export class MockImageProvider implements ImageProvider {
           type: "QUALITY_CHECK_STARTED",
           phase: "QUALITY",
           visibility: "PREVIEW",
+          evidenceSource: "QUALITY_GATE",
           copyKey: "quality.started",
           payload: {}
         }),
@@ -65,13 +69,15 @@ export class MockImageProvider implements ImageProvider {
           type: "QUALITY_CHECK_PASSED",
           phase: "QUALITY",
           visibility: "PREVIEW",
-          copyKey: "quality.identity.passed",
-          payload: { check: "IDENTITY_CONSISTENCY" }
+          evidenceSource: "QUALITY_GATE",
+          copyKey: "quality.fidelity.passed",
+          payload: { checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"] }
         }),
         publicEvent({
           type: "PREVIEW_READY",
           phase: "DELIVERY",
           visibility: "PREVIEW",
+          evidenceSource: "QUALITY_GATE",
           copyKey: "preview.ready",
           payload: { watermarked: true, downloadable: false }
         })

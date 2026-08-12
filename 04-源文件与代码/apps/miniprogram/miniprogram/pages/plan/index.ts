@@ -1,6 +1,6 @@
 import { createTask } from "../../services/api";
 
-const input = { tool: "PORTRAIT_RETOUCH" as const, inputAssetId: "demo-portrait-001", direction: "NATURAL" as const, parameters: { brightness: 0, warmth: 0, naturalness: 80 } };
+const input = { tool: "PORTRAIT_RETOUCH" as const, inputAssetId: "demo-portrait-001", direction: "NATURAL_RESCUE" as const, parameters: { naturalness: 85, detailLevel: 35 } };
 
 type Runtime = {
   alive: boolean;

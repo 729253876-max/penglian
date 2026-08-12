@@ -1,5 +1,5 @@
 import { createTask } from "../../services/api";
-const input = { tool: "PORTRAIT_RETOUCH", inputAssetId: "demo-portrait-001", direction: "NATURAL", parameters: { brightness: 0, warmth: 0, naturalness: 80 } };
+const input = { tool: "PORTRAIT_RETOUCH", inputAssetId: "demo-portrait-001", direction: "NATURAL_RESCUE", parameters: { naturalness: 85, detailLevel: 35 } };
 const runtimes = new WeakMap();
 function begin(page) {
     const previous = runtimes.get(page);

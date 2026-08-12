@@ -8,15 +8,14 @@ export type PortraitTaskInput = Extract<
 export interface StageADemoProfile {
   readonly profileId: "portrait-natural-v1";
   readonly inputAssetId: "demo-portrait-001";
-  readonly direction: "NATURAL";
+  readonly direction: "NATURAL_RESCUE";
   readonly parameters: {
-    readonly brightness: 0;
-    readonly warmth: 0;
-    readonly naturalness: 80;
+    readonly naturalness: 85;
+    readonly detailLevel: 35;
   };
   readonly diagnosis: {
     readonly copyKey: "portrait.diagnosis.light";
-    readonly finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT";
+    readonly finding: "FACE_UNDEREXPOSED";
   };
   readonly plan: {
     readonly copyKey: "portrait.plan.natural";
@@ -29,15 +28,14 @@ export interface StageADemoProfile {
 const stageADemoProfiles: readonly StageADemoProfile[] = [{
   profileId: "portrait-natural-v1",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
+  direction: "NATURAL_RESCUE",
   parameters: {
-    brightness: 0,
-    warmth: 0,
-    naturalness: 80
+    naturalness: 85,
+    detailLevel: 35
   },
   diagnosis: {
     copyKey: "portrait.diagnosis.light",
-    finding: "FACE_SHADOW_AND_BACKGROUND_HIGHLIGHT"
+    finding: "FACE_UNDEREXPOSED"
   },
   plan: {
     copyKey: "portrait.plan.natural"
@@ -53,9 +51,8 @@ export function requireStageADemoProfile(
   const profile = stageADemoProfiles.find((candidate) =>
     candidate.inputAssetId === input.inputAssetId &&
     candidate.direction === input.direction &&
-    candidate.parameters.brightness === input.parameters.brightness &&
-    candidate.parameters.warmth === input.parameters.warmth &&
-    candidate.parameters.naturalness === input.parameters.naturalness
+    candidate.parameters.naturalness === input.parameters.naturalness &&
+    candidate.parameters.detailLevel === input.parameters.detailLevel
   );
 
   if (!profile) {

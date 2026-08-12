@@ -36,18 +36,19 @@ const failureStatuses = new Set<TaskStatus>([
 ]);
 
 const copy: Record<EditTraceEvent["copyKey"], string> = {
+  "upload.asset.approved": "已确认私密上传资产可用于修复",
   "portrait.diagnosis.started": "正在分析照片的光线、肤质与主体结构",
   "portrait.diagnosis.light": "检测到面部暗部与背景高光差异",
+  "portrait.protection.recorded": "已记录人物与构图保护边界",
   "portrait.plan.natural": "已制定保留真实肤质的自然精修方案",
+  "portrait.plan.selected": "已选择忠实救片方向",
   "portrait.stage.retouch.started": "正在恢复人物局部光影与肤质层次",
   "portrait.parameter.direction": "已应用适中的自然精修方向",
   "portrait.stage.retouch.completed": "人物局部调整已完成",
   "quality.started": "正在检查身份与非目标区域稳定性",
-  "quality.identity.failed": "身份一致性检查未通过，正在准备重试",
+  "quality.fidelity.failed": "忠实质量检查未通过，正在准备重试",
   "portrait.retry.started": "已开始一次真实的质量重试",
-  "portrait.stage.retry.started": "正在重新处理未通过质量检查的阶段",
-  "quality.retry.started": "正在复查重试结果",
-  "quality.identity.passed": "人物身份一致性检查通过",
+  "quality.fidelity.passed": "人物忠实质量检查通过",
   "preview.ready": "水印预览已生成",
   "preview.provider.failed": "水印预览生成失败，任务已停止"
 };

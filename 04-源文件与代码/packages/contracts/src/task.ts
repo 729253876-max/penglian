@@ -107,11 +107,7 @@ export const EditTraceCopyKeySchema = z.enum([
   "quality.started",
   "quality.fidelity.passed",
   "quality.fidelity.failed",
-  "quality.identity.passed",
-  "quality.identity.failed",
   "portrait.retry.started",
-  "portrait.stage.retry.started",
-  "quality.retry.started",
   "preview.ready",
   "preview.provider.failed"
 ]);
@@ -175,7 +171,7 @@ const editTraceRules = {
   TASK_FAILED: ["DELIVERY", "preview.provider.failed", FailurePayloadSchema, ["SYSTEM_CHECK", "QUALITY_GATE"]]
 } as const;
 
-const StrictEditTraceEventSchema = z.object({
+export const EditTraceEventSchema = z.object({
   eventId: z.string().min(1),
   taskId: z.string().min(1),
   sequence: z.number().int().positive(),
@@ -269,33 +265,6 @@ export type PortraitPlanDirection = z.infer<typeof PortraitPlanDirectionSchema>;
 export type PortraitFinding = z.infer<typeof PortraitFindingSchema>;
 export type PortraitProtection = z.infer<typeof PortraitProtectionSchema>;
 export type EditTraceEvidenceSource = z.infer<typeof EditTraceEvidenceSourceSchema>;
-type LegacyCopyKey =
-  | "portrait.diagnosis.started" | "portrait.diagnosis.light" | "portrait.plan.natural"
-  | "portrait.stage.retouch.started" | "portrait.parameter.direction"
-  | "portrait.stage.retouch.completed" | "quality.started" | "quality.identity.failed"
-  | "portrait.retry.started" | "portrait.stage.retry.started" | "quality.retry.started"
-  | "quality.identity.passed" | "preview.ready" | "preview.provider.failed";
-type StrictEditTraceEvent = z.infer<typeof StrictEditTraceEventSchema>;
-type TransitionalEditTraceEvent = Omit<StrictEditTraceEvent, "evidenceSource" | "copyKey" | "payload"> & {
-  evidenceSource?: z.infer<typeof EditTraceEvidenceSourceSchema>;
-  /** @deprecated Transitional Stage-A shape; runtime schemas remain strict. */
-  copyKey: LegacyCopyKey;
-  /** @deprecated Transitional Stage-A shape; runtime schemas remain strict. */
-  payload: any;
-};
-type StrictCreateTaskInput = z.infer<typeof CreateTaskInputSchema>;
-type LegacyPortraitTaskInput = {
-  tool: "PORTRAIT_RETOUCH";
-  inputAssetId: string;
-  direction: "NATURAL" | "BRIGHT" | "WARM";
-  parameters: {
-    brightness: number;
-    warmth: number;
-    naturalness: number;
-  };
-};
-export type EditTraceEvent = TransitionalEditTraceEvent;
-export type CreateTaskInput = StrictCreateTaskInput | LegacyPortraitTaskInput;
+export type EditTraceEvent = z.infer<typeof EditTraceEventSchema>;
+export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
-
-export const EditTraceEventSchema = StrictEditTraceEventSchema as z.ZodType<EditTraceEvent>;

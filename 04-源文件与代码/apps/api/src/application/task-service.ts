@@ -59,16 +59,16 @@ const permittedProviderSequences: readonly (readonly ProviderEventRule[])[] = [
     ["PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction"],
     ["STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"],
     ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
-    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"],
+    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed"],
     ["PREVIEW_READY", "DELIVERY", "preview.ready"]
   ],
   [
     ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
-    ["QUALITY_CHECK_FAILED", "QUALITY", "quality.identity.failed"],
+    ["QUALITY_CHECK_FAILED", "QUALITY", "quality.fidelity.failed"],
     ["RETRY_STARTED", "RETOUCH", "portrait.retry.started"],
-    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retry.started"],
-    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.retry.started"],
-    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"],
+    ["STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"],
+    ["QUALITY_CHECK_STARTED", "QUALITY", "quality.started"],
+    ["QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed"],
     ["PREVIEW_READY", "DELIVERY", "preview.ready"]
   ]
 ];
@@ -108,6 +108,7 @@ export class TaskService {
       phase: "DIAGNOSIS",
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
       copyKey: "portrait.diagnosis.started",
       payload: {}
     });
@@ -116,6 +117,7 @@ export class TaskService {
       phase: "DIAGNOSIS",
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
       copyKey: demoProfile.diagnosis.copyKey,
       payload: { finding: demoProfile.diagnosis.finding }
     });
@@ -124,6 +126,7 @@ export class TaskService {
       phase: "PLAN",
       occurredAt: occurredAt(this.clock),
       visibility: "PREVIEW",
+      evidenceSource: "SYSTEM_CHECK",
       copyKey: demoProfile.plan.copyKey,
       payload: { direction: demoProfile.direction }
     });
@@ -164,6 +167,7 @@ export class TaskService {
         phase: "DELIVERY",
         occurredAt: occurredAt(this.clock),
         visibility: "PREVIEW",
+        evidenceSource: "SYSTEM_CHECK",
         copyKey: "preview.provider.failed",
         payload: { code: failureCode }
       });

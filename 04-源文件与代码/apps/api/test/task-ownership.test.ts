@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CreateTaskInput } from "@photo-ai/contracts";
+import type { CreateTaskInput, EditTraceEvent } from "@photo-ai/contracts";
 import { buildApp } from "../src/app.js";
 import {
   TaskService,
@@ -17,8 +17,8 @@ const tokenB = "fictional-token-b";
 const portraitInput: CreateTaskInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 };
 
 class CountingImageProvider implements ImageProvider {
@@ -29,14 +29,16 @@ class CountingImageProvider implements ImageProvider {
     return {
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg",
       events: [
-        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started"),
+        providerEvent("STAGE_STARTED", "RETOUCH", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
         providerEvent("PARAM_DIRECTION_APPLIED", "RETOUCH", "portrait.parameter.direction", {
-          direction: "NATURAL",
+          direction: "NATURAL_RESCUE",
           level: "MODERATE"
         }),
-        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed"),
+        providerEvent("STAGE_COMPLETED", "RETOUCH", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
         providerEvent("QUALITY_CHECK_STARTED", "QUALITY", "quality.started"),
-        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.identity.passed"),
+        providerEvent("QUALITY_CHECK_PASSED", "QUALITY", "quality.fidelity.passed", {
+          checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+        }),
         providerEvent("PREVIEW_READY", "DELIVERY", "preview.ready", {
           watermarked: true,
           downloadable: false
@@ -50,7 +52,7 @@ function providerEvent(
   type: Parameters<typeof createProviderEvent>[0],
   phase: Parameters<typeof createProviderEvent>[1],
   copyKey: Parameters<typeof createProviderEvent>[2],
-  payload: Record<string, unknown> = {}
+  payload: EditTraceEvent["payload"] = {}
 ) {
   return createProviderEvent(type, phase, copyKey, payload);
 }
@@ -58,14 +60,17 @@ function providerEvent(
 function createProviderEvent(
   type: "STAGE_STARTED" | "PARAM_DIRECTION_APPLIED" | "STAGE_COMPLETED" | "QUALITY_CHECK_STARTED" | "QUALITY_CHECK_PASSED" | "PREVIEW_READY",
   phase: "RETOUCH" | "QUALITY" | "DELIVERY",
-  copyKey: "portrait.stage.retouch.started" | "portrait.parameter.direction" | "portrait.stage.retouch.completed" | "quality.started" | "quality.identity.passed" | "preview.ready",
-  payload: Record<string, unknown>
+  copyKey: "portrait.stage.retouch.started" | "portrait.parameter.direction" | "portrait.stage.retouch.completed" | "quality.started" | "quality.fidelity.passed" | "preview.ready",
+  payload: EditTraceEvent["payload"]
 ) {
   return {
     type,
     phase,
     occurredAt: "2030-01-02T03:04:05.000Z",
     visibility: "PREVIEW" as const,
+    evidenceSource: type.startsWith("QUALITY_") || type === "PREVIEW_READY"
+      ? "QUALITY_GATE" as const
+      : "PROVIDER_RECEIPT" as const,
     copyKey,
     payload
   };
