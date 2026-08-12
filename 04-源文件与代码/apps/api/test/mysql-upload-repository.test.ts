@@ -213,7 +213,7 @@ describe("MySqlUploadRepository owned status and cancellation", () => {
         qualityWarning: false, normalizedAssetId: "asset-1"
       });
     expect(connection.statements[0]).toMatchObject({
-      sql: expect.stringMatching(/LEFT JOIN assets a ON .*a\.upload_session_id = u\.id.*a\.user_id = u\.user_id.*a\.kind = 'NORMALIZED'.*u\.state = 'APPROVED'/),
+      sql: expect.stringMatching(/LEFT JOIN assets a ON .*a\.upload_session_id = u\.id.*a\.user_id = u\.user_id.*a\.kind = 'NORMALIZED'.*u\.state = 'APPROVED'.*WHERE u\.id = \? AND u\.user_id = \? LIMIT 1/),
       values: ["session-1", "user-1"]
     });
   });
