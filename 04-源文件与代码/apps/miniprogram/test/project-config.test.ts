@@ -32,13 +32,15 @@ const expectedRuntimeFiles = [
   "pages/plan/index.js",
   "pages/preview/index.js",
   "pages/privacy/index.js",
+  "pages/upload/index.js",
   "services/api.js",
   "services/edit-trace-presentation.js",
   "services/edit-trace.js",
   "services/product-events.js",
   "services/rescue-scenarios.js",
   "services/runtime-contracts.js",
-  "services/session.js"
+  "services/session.js",
+  "services/upload.js"
 ] as const;
 
 const normalizeLineEndings = (content: string) =>

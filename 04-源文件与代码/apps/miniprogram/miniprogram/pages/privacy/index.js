@@ -16,10 +16,14 @@ function loginFailureMessage(error) {
 }
 Page({
     data: {
+        returnTarget: "plan",
         privacyAccepted: false,
         metadataRemoval: false,
         submitting: false,
         error: ""
+    },
+    onLoad(options) {
+        this.setData({ returnTarget: options.next === "upload" ? "upload" : "plan" });
     },
     setPrivacyAccepted(event) {
         this.setData({
@@ -47,7 +51,11 @@ Page({
                 metadataRemoval: true
             });
             this.setData({ submitting: false });
-            wx.navigateTo({ url: "/pages/plan/index" });
+            wx.navigateTo({
+                url: this.data.returnTarget === "upload"
+                    ? "/pages/upload/index"
+                    : "/pages/plan/index"
+            });
         }
         catch (error) {
             this.setData({

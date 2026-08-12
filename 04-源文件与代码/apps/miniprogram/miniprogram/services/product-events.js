@@ -54,6 +54,14 @@ export function createProductEventRecorder(sink) {
                     sink({ name, dimensions: { scenario } });
                     return;
                 }
+                case "HOME_OWN_PHOTO_TAPPED": {
+                    const source = readExactDimension(dimensions, "source", ["HOME"]);
+                    if (source === undefined) {
+                        invalidProductEvent();
+                    }
+                    sink({ name, dimensions: { source } });
+                    return;
+                }
                 case "DEMO_CASE_OPENED": {
                     const source = readExactDimension(dimensions, "source", ["HOME"]);
                     if (source === undefined) {
