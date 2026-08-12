@@ -7,7 +7,9 @@ import {
   getUploadStatus,
   readUploadResume,
   reissueUploadCredential,
+  uploadSelectedPhoto,
   validateLocalFile,
+  wechatPutTransport,
   writeUploadResume
 } from "../miniprogram/services/upload";
 
@@ -131,5 +133,151 @@ describe("safe upload recovery", () => {
   it("clears the versioned recovery key", () => {
     clearUploadResume();
     expect(wx.removeStorageSync).toHaveBeenCalledWith("photo-ai:upload-resume:v1");
+  });
+});
+
+describe("presigned PUT transport", () => {
+  it("uploads file bytes with the exact signed target and returns a normalized ETag", async () => {
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    Object.assign(wx, {
+      getFileSystemManager: vi.fn(() => ({
+        readFile: ({ success }: { success: (result: { data: ArrayBuffer }) => void }) => success({ data: bytes })
+      })),
+      request: vi.fn((options: WechatMiniprogram.RequestOption) => {
+        options.success?.({
+          statusCode: 200,
+          data: "",
+          header: { ETag: '  "etag-1"  ' },
+          cookies: [],
+          profile: {} as WechatMiniprogram.RequestProfile,
+          errMsg: "request:ok"
+        });
+        return {} as WechatMiniprogram.RequestTask;
+      })
+    });
+
+    await expect(wechatPutTransport.putFile({
+      filePath: "/tmp/photo.jpg",
+      target: {
+        url: "https://upload.example.test/object",
+        method: "PUT",
+        headers: { "x-cos-acl": "private" },
+        expiresAt: "2030-01-02T03:14:05.000Z"
+      }
+    })).resolves.toEqual({ etag: "etag-1" });
+    expect(wx.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: "PUT",
+      url: "https://upload.example.test/object",
+      data: bytes,
+      header: { "x-cos-acl": "private" }
+    }));
+  });
+
+  it("rejects a successful PUT without an ETag", async () => {
+    Object.assign(wx, {
+      getFileSystemManager: vi.fn(() => ({
+        readFile: ({ success }: { success: (result: { data: ArrayBuffer }) => void }) => success({ data: new ArrayBuffer(1) })
+      })),
+      request: vi.fn((options: WechatMiniprogram.RequestOption) => {
+        options.success?.({ statusCode: 200, data: "", header: {}, cookies: [], profile: {} as WechatMiniprogram.RequestProfile, errMsg: "request:ok" });
+        return {} as WechatMiniprogram.RequestTask;
+      })
+    });
+
+    await expect(wechatPutTransport.putFile({
+      filePath: "/tmp/photo.jpg",
+      target: { url: "https://upload.example.test/object", method: "PUT", headers: {}, expiresAt: "2030-01-02T03:14:05.000Z" }
+    })).rejects.toThrow("UPLOAD_ETAG_MISSING");
+  });
+});
+
+describe("bounded upload credential recovery", () => {
+  const photo = { path: "/tmp/photo.jpg", name: "photo.jpg", size: 1024 };
+  const initial = {
+    sessionId,
+    state: "INIT" as const,
+    expiresAt: "2030-01-02T03:34:05.000Z",
+    credentialExpiresAt: "2030-01-02T03:14:05.000Z",
+    upload: { url: "https://upload.example.test/object", method: "PUT" as const, headers: {} }
+  };
+
+  it("reissues once after an expired credential returns 403, then completes and queries status", async () => {
+    const events: string[] = [];
+    let puts = 0;
+    const status = await uploadSelectedPhoto(photo, {
+      now: () => new Date("2030-01-02T03:14:06.000Z"),
+      createSession: async () => { events.push("create"); return initial; },
+      reissue: async () => { events.push("reissue"); return { url: "https://upload.example.test/object-2", method: "PUT", headers: {}, expiresAt: "2030-01-02T03:24:06.000Z" }; },
+      transport: { putFile: async () => { puts += 1; events.push(`put-${puts}`); if (puts === 1) throw new Error("UPLOAD_HTTP_403"); return { etag: "etag-1" }; } },
+      complete: async (_id, etag) => { events.push(`complete:${etag}`); return { sessionId, state: "UPLOADED" }; },
+      getStatus: async () => { events.push("status"); return { sessionId, state: "REVIEWING" }; },
+      persistResume: (value) => { events.push(`persist:${value.state}`); }
+    });
+
+    expect(status).toEqual({ sessionId, state: "REVIEWING" });
+    expect(events).toEqual(["create", "put-1", "reissue", "put-2", "complete:etag-1", "status", "persist:PROCESSING"]);
+  });
+
+  it("also reissues once when an expired credential returns 401", async () => {
+    let puts = 0;
+    let reissues = 0;
+    await expect(uploadSelectedPhoto(photo, {
+      now: () => new Date("2030-01-02T03:14:06.000Z"),
+      createSession: async () => initial,
+      reissue: async () => { reissues += 1; return { url: "https://upload.example.test/object-2", method: "PUT", headers: {}, expiresAt: "2030-01-02T03:24:06.000Z" }; },
+      transport: { putFile: async () => { puts += 1; if (puts === 1) throw new Error("UPLOAD_HTTP_401"); return { etag: "etag-1" }; } },
+      complete: async () => ({ sessionId, state: "UPLOADED" }),
+      getStatus: async () => ({ sessionId, state: "UPLOADED" }),
+      persistResume: () => {}
+    })).resolves.toEqual({ sessionId, state: "UPLOADED" });
+    expect(puts).toBe(2);
+    expect(reissues).toBe(1);
+  });
+
+  it("rejects an invalid local file before creating a server session", async () => {
+    let creates = 0;
+    await expect(uploadSelectedPhoto({ path: "/tmp/photo.gif", name: "photo.gif", size: 1024 }, {
+      now: () => new Date(now),
+      createSession: async () => { creates += 1; return initial; },
+      reissue: async () => { throw new Error("unexpected"); },
+      transport: { putFile: async () => { throw new Error("unexpected"); } },
+      complete: async () => ({ sessionId, state: "UPLOADED" }),
+      getStatus: async () => ({ sessionId, state: "UPLOADED" }),
+      persistResume: () => {}
+    })).rejects.toThrow("IMAGE_FORMAT_UNSUPPORTED");
+    expect(creates).toBe(0);
+  });
+
+  it.each([
+    ["403 before expiry", "2030-01-02T03:14:04.000Z", "UPLOAD_HTTP_403"],
+    ["network failure after expiry", "2030-01-02T03:14:06.000Z", "UPLOAD_NETWORK_ERROR"]
+  ])("does not reissue for %s", async (_name, clock, failureCode) => {
+    let reissues = 0;
+    await expect(uploadSelectedPhoto(photo, {
+      now: () => new Date(clock),
+      createSession: async () => initial,
+      reissue: async () => { reissues += 1; throw new Error("unexpected"); },
+      transport: { putFile: async () => { throw new Error(failureCode); } },
+      complete: async () => ({ sessionId, state: "UPLOADED" }),
+      getStatus: async () => ({ sessionId, state: "UPLOADED" }),
+      persistResume: () => {}
+    })).rejects.toThrow(failureCode);
+    expect(reissues).toBe(0);
+  });
+
+  it("stops after the reissued credential also returns 403", async () => {
+    let puts = 0;
+    let reissues = 0;
+    await expect(uploadSelectedPhoto(photo, {
+      now: () => new Date("2030-01-02T03:14:06.000Z"),
+      createSession: async () => initial,
+      reissue: async () => { reissues += 1; return { url: "https://upload.example.test/object-2", method: "PUT", headers: {}, expiresAt: "2030-01-02T03:24:06.000Z" }; },
+      transport: { putFile: async () => { puts += 1; throw new Error("UPLOAD_HTTP_403"); } },
+      complete: async () => ({ sessionId, state: "UPLOADED" }),
+      getStatus: async () => ({ sessionId, state: "UPLOADED" }),
+      persistResume: () => {}
+    })).rejects.toThrow("UPLOAD_HTTP_403");
+    expect(puts).toBe(2);
+    expect(reissues).toBe(1);
   });
 });

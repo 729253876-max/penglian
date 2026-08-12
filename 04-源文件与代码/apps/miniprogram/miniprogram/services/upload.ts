@@ -33,6 +33,23 @@ export type StoredUploadResume = {
   updatedAt: string;
 };
 
+export interface UploadTransport {
+  putFile(input: {
+    filePath: string;
+    target: IssuedUploadTarget;
+  }): Promise<{ etag: string }>;
+}
+
+export interface UploadDependencies {
+  now: () => Date;
+  createSession: typeof createUploadSession;
+  reissue: typeof reissueUploadCredential;
+  transport: UploadTransport;
+  complete: typeof completeUpload;
+  getStatus: typeof getUploadStatus;
+  persistResume: typeof writeUploadResume;
+}
+
 export function validateLocalFile(file: LocalPhoto): LocalFileValidation {
   if (file.size > MAX_UPLOAD_BYTES) return { allowed: false, code: "IMAGE_TOO_LARGE" };
   const extension = /\.([^.]+)$/.exec(file.name.trim())?.[1]?.toLowerCase();
@@ -98,6 +115,128 @@ export function writeUploadResume(value: StoredUploadResume): void {
 
 export function clearUploadResume(): void {
   wx.removeStorageSync(RESUME_STORAGE_KEY);
+}
+
+export const wechatPutTransport: UploadTransport = {
+  async putFile({ filePath, target }) {
+    const data = await readFileBytes(filePath);
+    return requestPut(data, target);
+  }
+};
+
+const defaultUploadDependencies: UploadDependencies = {
+  now: () => new Date(),
+  createSession: createUploadSession,
+  reissue: reissueUploadCredential,
+  transport: wechatPutTransport,
+  complete: completeUpload,
+  getStatus: getUploadStatus,
+  persistResume: writeUploadResume
+};
+
+export async function uploadSelectedPhoto(
+  photo: LocalPhoto,
+  dependencies: UploadDependencies = defaultUploadDependencies
+): Promise<UploadStatus> {
+  const validation = validateLocalFile(photo);
+  if (!validation.allowed) throw new Error(validation.code);
+
+  const session = await dependencies.createSession(photo);
+  let target: IssuedUploadTarget = {
+    ...session.upload,
+    expiresAt: session.credentialExpiresAt
+  };
+  let uploaded: { etag: string };
+  try {
+    uploaded = await dependencies.transport.putFile({ filePath: photo.path, target });
+  } catch (error) {
+    if (!credentialCanBeReissued(error, target.expiresAt, dependencies.now())) throw error;
+    target = await dependencies.reissue(session.sessionId);
+    uploaded = await dependencies.transport.putFile({ filePath: photo.path, target });
+  }
+
+  await dependencies.complete(session.sessionId, uploaded.etag);
+  const status = await dependencies.getStatus(session.sessionId);
+  if (["UPLOADED", "NORMALIZING", "REVIEWING"].includes(status.state)) {
+    dependencies.persistResume({
+      sessionId: session.sessionId,
+      state: status.state === "UPLOADED" ? "UPLOADED" : "PROCESSING",
+      updatedAt: dependencies.now().toISOString()
+    });
+  }
+  return status;
+}
+
+function credentialCanBeReissued(error: unknown, expiresAt: string, now: Date): boolean {
+  return error instanceof Error &&
+    (error.message === "UPLOAD_HTTP_401" || error.message === "UPLOAD_HTTP_403") &&
+    now.getTime() >= Date.parse(expiresAt);
+}
+
+function readFileBytes(filePath: string): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    wx.getFileSystemManager().readFile({
+      filePath,
+      success(result) {
+        if (settled) return;
+        settled = true;
+        if (!(result.data instanceof ArrayBuffer)) {
+          reject(new Error("UPLOAD_FILE_READ_FAILED"));
+          return;
+        }
+        resolve(result.data);
+      },
+      fail() {
+        if (settled) return;
+        settled = true;
+        reject(new Error("UPLOAD_FILE_READ_FAILED"));
+      }
+    });
+  });
+}
+
+function requestPut(data: ArrayBuffer, target: IssuedUploadTarget): Promise<{ etag: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    wx.request({
+      method: "PUT",
+      url: target.url,
+      data,
+      header: target.headers,
+      success(response) {
+        if (settled) return;
+        settled = true;
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(response.statusCode === 401
+            ? "UPLOAD_HTTP_401"
+            : response.statusCode === 403 ? "UPLOAD_HTTP_403" : "UPLOAD_HTTP_ERROR"));
+          return;
+        }
+        const etag = responseHeader(response.header, "etag");
+        if (!etag) {
+          reject(new Error("UPLOAD_ETAG_MISSING"));
+          return;
+        }
+        resolve({ etag: normalizeEtag(etag) });
+      },
+      fail() {
+        if (settled) return;
+        settled = true;
+        reject(new Error("UPLOAD_NETWORK_ERROR"));
+      }
+    });
+  });
+}
+
+function responseHeader(headers: Record<string, unknown>, name: string): string | undefined {
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name);
+  const value = key ? headers[key] : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeEtag(value: string): string {
+  return value.trim().replace(/^"([^"]*)"$/, "$1");
 }
 
 function parseUploadSession(value: unknown): UploadSession {
