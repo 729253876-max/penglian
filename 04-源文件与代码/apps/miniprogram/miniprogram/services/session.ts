@@ -257,9 +257,12 @@ function protectedRequest(
 
 function parseProtectedResponse<T>(
   response: Response,
-  parse: (value: unknown) => T
+  parse: (value: unknown) => T,
+  allowedErrorCodes: readonly string[] = []
 ): T {
   if (response.statusCode < 200 || response.statusCode >= 300) {
+    const safeCode = allowedBusinessError(response.data, allowedErrorCodes);
+    if (safeCode) throw new Error(safeCode);
     throw new Error(`API_${response.statusCode}`);
   }
   try {
@@ -267,6 +270,16 @@ function parseProtectedResponse<T>(
   } catch {
     throw new Error("API_RESPONSE_INVALID");
   }
+}
+
+function allowedBusinessError(
+  value: unknown,
+  allowedErrorCodes: readonly string[]
+): string | undefined {
+  if (!isRecord(value) || !hasExactKeys(value, ["code"]) || typeof value.code !== "string") {
+    return undefined;
+  }
+  return allowedErrorCodes.includes(value.code) ? value.code : undefined;
 }
 
 export async function ensureSession(input: ConsentInput): Promise<SessionPair> {
@@ -283,7 +296,8 @@ export async function ensureSession(input: ConsentInput): Promise<SessionPair> {
 
 export async function authenticatedRequest<T>(
   options: WechatMiniprogram.RequestOption,
-  parse: (value: unknown) => T
+  parse: (value: unknown) => T,
+  allowedErrorCodes: readonly string[] = []
 ): Promise<T> {
   const current = storedSession();
   if (!current) throw returnToPrivacy("SESSION_REQUIRED");
@@ -303,7 +317,7 @@ export async function authenticatedRequest<T>(
   }
 
   const first = await protectedRequest(options, requestPair.accessToken);
-  if (first.statusCode !== 401) return parseProtectedResponse(first, parse);
+  if (first.statusCode !== 401) return parseProtectedResponse(first, parse, allowedErrorCodes);
 
   if (proactivelyRefreshed) {
     throw returnToPrivacy(
@@ -318,7 +332,7 @@ export async function authenticatedRequest<T>(
     if (retryWithLatest.statusCode === 401) {
       throw returnToPrivacy("SESSION_EXPIRED", latest);
     }
-    return parseProtectedResponse(retryWithLatest, parse);
+    return parseProtectedResponse(retryWithLatest, parse, allowedErrorCodes);
   }
 
   let refreshed: RefreshResult;
@@ -335,5 +349,5 @@ export async function authenticatedRequest<T>(
       refreshed.sourceReplaced ? current : refreshed.pair
     );
   }
-  return parseProtectedResponse(retry, parse);
+  return parseProtectedResponse(retry, parse, allowedErrorCodes);
 }

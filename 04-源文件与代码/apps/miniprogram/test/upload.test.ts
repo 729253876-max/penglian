@@ -5,9 +5,12 @@ import {
   completeUpload,
   createUploadSession,
   getUploadStatus,
+  pollUploadStatus,
+  presentUploadStatus,
   readUploadResume,
   reissueUploadCredential,
   uploadSelectedPhoto,
+  uploadFailureMessage,
   validateLocalFile,
   wechatPutTransport,
   writeUploadResume
@@ -71,7 +74,7 @@ describe("upload API boundary", () => {
       method: "POST",
       url: "/v1/uploads",
       data: { fileName: "photo.jpg", sizeBytes: 1024, metadataRemovalConsentVersion: "2026-08-02" }
-    }, expect.any(Function));
+    }, expect.any(Function), ["CONSENT_REQUIRED", "IMAGE_TOO_LARGE", "IMAGE_FORMAT_UNSUPPORTED"]);
   });
 
   it("rejects malformed or extended session responses", async () => {
@@ -279,5 +282,76 @@ describe("bounded upload credential recovery", () => {
     })).rejects.toThrow("UPLOAD_HTTP_403");
     expect(puts).toBe(2);
     expect(reissues).toBe(1);
+  });
+});
+
+describe("safe upload presentation", () => {
+  it.each([
+    [{ sessionId, state: "UPLOADED" as const }, "PROCESSING", false],
+    [{ sessionId, state: "NORMALIZING" as const }, "PROCESSING", false],
+    [{ sessionId, state: "REVIEWING" as const }, "RECHECKING", false],
+    [{ sessionId, state: "APPROVED" as const, qualityWarning: false }, "READY", true],
+    [{ sessionId, state: "APPROVED" as const, qualityWarning: true }, "WARNING", true],
+    [{ sessionId, state: "REJECTED" as const }, "FAILED", false],
+    [{ sessionId, state: "FAILED" as const, failureCode: "IMAGE_SHORT_EDGE_TOO_SMALL" }, "FAILED", false],
+    [{ sessionId, state: "EXPIRED" as const }, "FAILED", false],
+    [{ sessionId, state: "CANCELED" as const }, "FAILED", false]
+  ])("maps %# to %s", (status, phase, canContinue) => {
+    const result = presentUploadStatus(status);
+    expect(result.phase).toBe(phase);
+    expect(result.canContinue).toBe(canContinue);
+    if (phase === "FAILED") {
+      expect(result.detail).toContain("本次未扣除免费次数或积分");
+      expect(result.detail).not.toMatch(/COS|CI|腾讯|confidence|objectKey/i);
+    }
+  });
+
+  it("uses approved safe copy and never interpolates unknown errors", () => {
+    expect(uploadFailureMessage(new Error("IMAGE_TOO_LARGE")))
+      .toBe("这张照片超过 30 MB，请选择更小的原图。本次未扣除免费次数或积分。");
+    expect(uploadFailureMessage(new Error("SecretKey=raw-secret COS confidence=0.99")))
+      .toBe("上传暂时没有完成，请检查网络后重试。本次未扣除免费次数或积分。");
+  });
+});
+
+describe("bounded upload polling", () => {
+  it("queries immediately, waits only for processing states, and returns a terminal presentation", async () => {
+    const events: string[] = [];
+    const states = ["UPLOADED", "NORMALIZING", "APPROVED"] as const;
+    const result = await pollUploadStatus(sessionId, {
+      signal: new AbortController().signal,
+      wait: async (milliseconds) => { events.push(`wait:${milliseconds}`); },
+      maxPolls: 3,
+      getStatus: async () => ({ sessionId, state: states.shift() ?? "APPROVED" })
+    });
+
+    expect(result.phase).toBe("READY");
+    expect(events).toEqual(["wait:2000", "wait:2000"]);
+  });
+
+  it("stops after maxPolls and preserves a processing result", async () => {
+    let queries = 0;
+    const result = await pollUploadStatus(sessionId, {
+      signal: new AbortController().signal,
+      wait: async () => {},
+      maxPolls: 2,
+      getStatus: async () => { queries += 1; return { sessionId, state: "REVIEWING" }; }
+    });
+
+    expect(queries).toBe(2);
+    expect(result.phase).toBe("RECHECKING");
+    expect(result.canContinue).toBe(false);
+  });
+
+  it("does not query again after the wait aborts", async () => {
+    const controller = new AbortController();
+    let queries = 0;
+    await expect(pollUploadStatus(sessionId, {
+      signal: controller.signal,
+      wait: async () => { controller.abort(); },
+      maxPolls: 3,
+      getStatus: async () => { queries += 1; return { sessionId, state: "UPLOADED" }; }
+    })).rejects.toThrow("UPLOAD_POLL_ABORTED");
+    expect(queries).toBe(1);
   });
 });

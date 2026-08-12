@@ -213,8 +213,11 @@ function protectedRequest(options, accessToken) {
         }
     });
 }
-function parseProtectedResponse(response, parse) {
+function parseProtectedResponse(response, parse, allowedErrorCodes = []) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
+        const safeCode = allowedBusinessError(response.data, allowedErrorCodes);
+        if (safeCode)
+            throw new Error(safeCode);
         throw new Error(`API_${response.statusCode}`);
     }
     try {
@@ -223,6 +226,12 @@ function parseProtectedResponse(response, parse) {
     catch {
         throw new Error("API_RESPONSE_INVALID");
     }
+}
+function allowedBusinessError(value, allowedErrorCodes) {
+    if (!isRecord(value) || !hasExactKeys(value, ["code"]) || typeof value.code !== "string") {
+        return undefined;
+    }
+    return allowedErrorCodes.includes(value.code) ? value.code : undefined;
 }
 export async function ensureSession(input) {
     const consent = parseConsent(input);
@@ -235,7 +244,7 @@ export async function ensureSession(input) {
     wx.setStorageSync(SESSION_STORAGE_KEY, pair);
     return pair;
 }
-export async function authenticatedRequest(options, parse) {
+export async function authenticatedRequest(options, parse, allowedErrorCodes = []) {
     const current = storedSession();
     if (!current)
         throw returnToPrivacy("SESSION_REQUIRED");
@@ -255,7 +264,7 @@ export async function authenticatedRequest(options, parse) {
     }
     const first = await protectedRequest(options, requestPair.accessToken);
     if (first.statusCode !== 401)
-        return parseProtectedResponse(first, parse);
+        return parseProtectedResponse(first, parse, allowedErrorCodes);
     if (proactivelyRefreshed) {
         throw returnToPrivacy("SESSION_EXPIRED", refreshSourceReplaced ? current : requestPair);
     }
@@ -265,7 +274,7 @@ export async function authenticatedRequest(options, parse) {
         if (retryWithLatest.statusCode === 401) {
             throw returnToPrivacy("SESSION_EXPIRED", latest);
         }
-        return parseProtectedResponse(retryWithLatest, parse);
+        return parseProtectedResponse(retryWithLatest, parse, allowedErrorCodes);
     }
     let refreshed;
     try {
@@ -278,5 +287,5 @@ export async function authenticatedRequest(options, parse) {
     if (retry.statusCode === 401) {
         throw returnToPrivacy("SESSION_EXPIRED", refreshed.sourceReplaced ? current : refreshed.pair);
     }
-    return parseProtectedResponse(retry, parse);
+    return parseProtectedResponse(retry, parse, allowedErrorCodes);
 }

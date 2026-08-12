@@ -50,6 +50,21 @@ export interface UploadDependencies {
   persistResume: typeof writeUploadResume;
 }
 
+export type UploadPresentation = {
+  phase: "PROCESSING" | "READY" | "WARNING" | "RECHECKING" | "FAILED";
+  title: string;
+  detail: string;
+  canRetry: boolean;
+  canContinue: boolean;
+};
+
+export type PollControl = {
+  signal: AbortSignal;
+  wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+  maxPolls: number;
+  getStatus?: typeof getUploadStatus;
+};
+
 export function validateLocalFile(file: LocalPhoto): LocalFileValidation {
   if (file.size > MAX_UPLOAD_BYTES) return { allowed: false, code: "IMAGE_TOO_LARGE" };
   const extension = /\.([^.]+)$/.exec(file.name.trim())?.[1]?.toLowerCase();
@@ -68,27 +83,27 @@ export const createUploadSession = (file: LocalPhoto): Promise<UploadSession> =>
       sizeBytes: file.size,
       metadataRemovalConsentVersion: CONSENT_POLICY_VERSION
     }
-  }, parseUploadSession);
+  }, parseUploadSession, ["CONSENT_REQUIRED", "IMAGE_TOO_LARGE", "IMAGE_FORMAT_UNSUPPORTED"]);
 
 export const reissueUploadCredential = (sessionId: string): Promise<IssuedUploadTarget> =>
   authenticatedRequest({
     method: "POST",
     url: `/v1/uploads/${sessionPath(sessionId)}/credentials`,
     data: {}
-  }, parseIssuedUploadTarget);
+  }, parseIssuedUploadTarget, ["UPLOAD_SESSION_NOT_FOUND", "UPLOAD_SESSION_EXPIRED", "CREDENTIAL_REISSUE_LIMIT"]);
 
 export const completeUpload = (sessionId: string, etag: string): Promise<UploadCompletion> =>
   authenticatedRequest({
     method: "POST",
     url: `/v1/uploads/${sessionPath(sessionId)}/complete`,
     data: { etag }
-  }, parseUploadCompletion);
+  }, parseUploadCompletion, ["UPLOAD_SESSION_NOT_FOUND", "UPLOAD_SESSION_EXPIRED", "UPLOAD_STATE_CONFLICT", "UPLOAD_ETAG_MISMATCH"]);
 
 export const getUploadStatus = (sessionId: string): Promise<UploadStatus> =>
   authenticatedRequest({
     method: "GET",
     url: `/v1/uploads/${sessionPath(sessionId)}`
-  }, parseUploadStatus);
+  }, parseUploadStatus, ["UPLOAD_SESSION_NOT_FOUND"]);
 
 export const cancelUpload = (sessionId: string): Promise<void> =>
   authenticatedRequest({
@@ -166,6 +181,88 @@ export async function uploadSelectedPhoto(
   }
   return status;
 }
+
+export function presentUploadStatus(status: UploadStatus): UploadPresentation {
+  if (status.state === "APPROVED") {
+    return status.qualityWarning
+      ? presentation("WARNING", "照片可以继续处理", "照片清晰度或曝光有限，仍可继续，但改善幅度可能受限。", true, true)
+      : presentation("READY", "照片已准备好", "安全检查已完成，可以继续精修。", false, true);
+  }
+  if (status.state === "REVIEWING") {
+    return presentation("RECHECKING", "正在进一步检查", "照片正在进一步检查，完成后会自动更新。", false, false);
+  }
+  if (["INIT", "UPLOADING", "UPLOADED", "NORMALIZING"].includes(status.state)) {
+    return presentation("PROCESSING", "正在处理照片", "已完成私密上传，正在准备安全预览。", false, false);
+  }
+  if (status.state === "EXPIRED") {
+    return presentation("FAILED", "上传已过期", "本次上传已过期，请重新选择照片。本次未扣除免费次数或积分。", true, false);
+  }
+  if (status.state === "CANCELED") {
+    return presentation("FAILED", "上传已取消", "本次上传已取消，可重新选择照片。本次未扣除免费次数或积分。", true, false);
+  }
+  if (status.state === "REJECTED") {
+    return presentation("FAILED", "暂时无法处理", "这张照片暂时无法处理，请更换照片。本次未扣除免费次数或积分。", true, false);
+  }
+  const detail = status.failureCode && imageDimensionFailures.has(status.failureCode)
+    ? "照片尺寸不适合处理，请换一张更清晰的原图。本次未扣除免费次数或积分。"
+    : "照片处理暂时没有完成，请重新选择或稍后重试。本次未扣除免费次数或积分。";
+  return presentation("FAILED", "处理没有完成", detail, true, false);
+}
+
+export async function pollUploadStatus(
+  sessionId: string,
+  control: PollControl
+): Promise<UploadPresentation> {
+  if (!Number.isInteger(control.maxPolls) || control.maxPolls < 1) {
+    throw new Error("INVALID_POLL_CONTROL");
+  }
+  const query = control.getStatus ?? getUploadStatus;
+  let latest: UploadPresentation | undefined;
+  for (let poll = 0; poll < control.maxPolls; poll += 1) {
+    if (control.signal.aborted) throw new Error("UPLOAD_POLL_ABORTED");
+    latest = presentUploadStatus(await query(sessionId));
+    if (latest.phase !== "PROCESSING" && latest.phase !== "RECHECKING") return latest;
+    if (poll === control.maxPolls - 1) return latest;
+    await control.wait(2_000, control.signal);
+    if (control.signal.aborted) throw new Error("UPLOAD_POLL_ABORTED");
+  }
+  if (!latest) throw new Error("INVALID_POLL_CONTROL");
+  return latest;
+}
+
+export function uploadFailureMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : "";
+  if (code === "IMAGE_TOO_LARGE") {
+    return "这张照片超过 30 MB，请选择更小的原图。本次未扣除免费次数或积分。";
+  }
+  if (code === "IMAGE_FORMAT_UNSUPPORTED") {
+    return "目前支持 JPG、PNG、HEIC 和 HEIF，请重新选择。本次未扣除免费次数或积分。";
+  }
+  if (code === "UPLOAD_SESSION_EXPIRED" || code === "API_409_UPLOAD_SESSION_EXPIRED") {
+    return "本次上传已过期，请重新选择照片。本次未扣除免费次数或积分。";
+  }
+  if (code === "UPLOAD_ETAG_MISMATCH" || code === "API_409_UPLOAD_ETAG_MISMATCH") {
+    return "上传校验未完成，请重新上传这张照片。本次未扣除免费次数或积分。";
+  }
+  return "上传暂时没有完成，请检查网络后重试。本次未扣除免费次数或积分。";
+}
+
+function presentation(
+  phase: UploadPresentation["phase"],
+  title: string,
+  detail: string,
+  canRetry: boolean,
+  canContinue: boolean
+): UploadPresentation {
+  return { phase, title, detail, canRetry, canContinue };
+}
+
+const imageDimensionFailures = new Set([
+  "IMAGE_DIMENSIONS_INVALID",
+  "IMAGE_SHORT_EDGE_TOO_SMALL",
+  "IMAGE_LONG_EDGE_EXCEEDED",
+  "IMAGE_PIXEL_COUNT_EXCEEDED"
+]);
 
 function credentialCanBeReissued(error: unknown, expiresAt: string, now: Date): boolean {
   return error instanceof Error &&

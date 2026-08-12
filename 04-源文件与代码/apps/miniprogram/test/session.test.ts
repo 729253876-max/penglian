@@ -750,6 +750,24 @@ describe("authenticatedRequest", () => {
     expect(wx.reLaunch).not.toHaveBeenCalled();
   });
 
+  it("returns only an explicitly allowed safe business error code", async () => {
+    storage.set(sessionKey, firstPair);
+    requestHandler = (options) => respond(options, 409, { code: "UPLOAD_ETAG_MISMATCH" });
+
+    await expect(authenticatedRequest(
+      { method: "POST", url: "/v1/uploads/session-1/complete" },
+      (value) => value,
+      ["UPLOAD_ETAG_MISMATCH"]
+    )).rejects.toThrow("UPLOAD_ETAG_MISMATCH");
+
+    requestHandler = (options) => respond(options, 409, { code: "INTERNAL_DATABASE_DETAIL" });
+    await expect(authenticatedRequest(
+      { method: "POST", url: "/v1/uploads/session-1/complete" },
+      (value) => value,
+      ["UPLOAD_ETAG_MISMATCH"]
+    )).rejects.toThrow("API_409");
+  });
+
   it("never logs raw access or refresh tokens during authentication failures", async () => {
     storage.set(sessionKey, firstPair);
     storage.set(deviceKey, "device-stable-one");
