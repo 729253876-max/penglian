@@ -346,6 +346,46 @@ Page({
     this.setData({ ready: false, error: "修复记录暂时不完整，请稍后返回重试。" });
   },
 
+  async handleAcceptedJournalOrContinue(
+    items: EditTraceEvent[],
+    generation: number
+  ) {
+    const page = this as unknown as object;
+    const runtime = runtimes.get(page);
+    if (!runtime || !active(page, runtime, generation)) return;
+
+    const failureEvent = items.find((item) => item.type === "TASK_FAILED");
+    if (failureEvent) {
+      const snapshot = await getTask(this.data.taskId);
+      if (!active(page, runtime, generation)) return;
+      const failure = failureEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence);
+      if (!failure) {
+        this.stopForInvalidJournal();
+        return;
+      }
+      this.markFailed(failure.code, snapshot, failure.failedChecks);
+      return;
+    }
+    if (items.some((item) => item.type === "PREVIEW_READY")) {
+      const snapshot = await getTask(this.data.taskId);
+      if (!active(page, runtime, generation)) return;
+      if (!successEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence)) {
+        this.stopForInvalidJournal();
+        return;
+      }
+      runtime.stopPolling = true;
+      this.flushPendingEvents();
+      this.setData({ status: snapshot.status, ready: true, error: "" });
+      return;
+    }
+
+    if (runtime.pollTimer) clearTimeout(runtime.pollTimer);
+    runtime.pollTimer = setTimeout(() => {
+      runtime.pollTimer = undefined;
+      if (active(page, runtime, generation)) void this.poll();
+    }, 500);
+  },
+
   async poll() {
     const page = this as unknown as object;
     const runtime = runtimes.get(page);
@@ -388,42 +428,7 @@ Page({
         response.nextSequence = full.nextSequence;
       }
 
-      const failureEvent = response.items.find(
-        (item) => item.type === "TASK_FAILED"
-      );
-      if (failureEvent) {
-        const snapshot = await getTask(this.data.taskId);
-        if (!active(page, runtime, generation)) return;
-        const failure = failureEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence);
-        if (!failure) {
-          this.stopForInvalidJournal();
-          return;
-        }
-        this.markFailed(failure.code, snapshot, failure.failedChecks);
-        return;
-      }
-      if (response.items.some((item) => item.type === "PREVIEW_READY")) {
-        const snapshot = await getTask(this.data.taskId);
-        if (!active(page, runtime, generation)) return;
-        if (!successEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence)) {
-          this.stopForInvalidJournal();
-          return;
-        }
-        runtime.stopPolling = true;
-        this.flushPendingEvents();
-        this.setData({ status: snapshot.status, ready: true, error: "" });
-        return;
-      }
-
-      if (runtime.pollTimer) {
-        clearTimeout(runtime.pollTimer);
-      }
-      runtime.pollTimer = setTimeout(() => {
-        runtime.pollTimer = undefined;
-        if (active(page, runtime, generation)) {
-          void this.poll();
-        }
-      }, 500);
+      await this.handleAcceptedJournalOrContinue(response.items, generation);
     } catch (error) {
       if (active(page, runtime, generation)) {
         if (error instanceof Error && error.message === "API_RESPONSE_INVALID" && !runtime.refetching) {
@@ -437,6 +442,7 @@ Page({
             }
             runtime.refetching = false;
             this.setData({ error: "" });
+            await this.handleAcceptedJournalOrContinue(full.items, generation);
             return;
           } catch {
             this.stopForInvalidJournal();

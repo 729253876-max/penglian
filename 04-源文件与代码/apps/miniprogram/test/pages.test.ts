@@ -83,6 +83,12 @@ async function loadPage(path: string): Promise<PageConfig> {
   return config;
 }
 
+async function flushMicrotasks(count = 12) {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
@@ -722,6 +728,70 @@ describe("live page", () => {
     config.onLoad.call(page, { taskId: "task-1" });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(api.getEvents.mock.calls.map((call) => call[1])).toEqual([0, 0]);
+    config.onUnload.call(page);
+  });
+
+  it("handles preview-ready after recovering a parser-rejected incremental page", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockImplementation(async () => api.getTask.mock.calls.length === 1
+      ? { taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 }
+      : { taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+    api.getEvents.mockImplementation(async () => {
+      if (api.getEvents.mock.calls.length === 1) throw new Error("API_RESPONSE_INVALID");
+      return { items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 };
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await flushMicrotasks();
+
+    expect(api.getTask).toHaveBeenCalledTimes(2);
+    expect(page.data.ready).toBe(true);
+    expect(page.data.status).toBe("SUCCEEDED");
+  });
+
+  it("handles task-failed after recovering a parser-rejected incremental page", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockImplementation(async () => api.getTask.mock.calls.length === 1
+      ? { taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 }
+      : { taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, failureCode: "FIDELITY_GATE_FAILED", noCharge: true });
+    api.getEvents.mockImplementation(async () => {
+      if (api.getEvents.mock.calls.length === 1) throw new Error("API_RESPONSE_INVALID");
+      return { items: [
+        { ...event("quality-failed", 1), type: "QUALITY_CHECK_FAILED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.failed", payload: { checks: ["IDENTITY"], failedChecks: ["IDENTITY"] } },
+        { ...event("failed", 2, "TASK_FAILED"), evidenceSource: "QUALITY_GATE", payload: { code: "FIDELITY_GATE_FAILED" } }
+      ], nextSequence: 2 };
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await flushMicrotasks();
+
+    expect(api.getTask).toHaveBeenCalledTimes(2);
+    expect(page.data.ready).toBe(false);
+    expect(page.data.failedChecks).toEqual(["人物身份"]);
+    expect(page.data.noChargeNote).toBeTruthy();
+  });
+
+  it("schedules the next poll after recovering a still-processing journal", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 });
+    api.getEvents.mockImplementation(async () => {
+      if (api.getEvents.mock.calls.length === 1) throw new Error("API_RESPONSE_INVALID");
+      return { items: [], nextSequence: 0 };
+    });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await flushMicrotasks();
+
+    expect(api.getEvents).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.getEvents).toHaveBeenCalledTimes(3);
     config.onUnload.call(page);
   });
 
