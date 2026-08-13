@@ -891,7 +891,7 @@ describe("TaskService", () => {
     expect(repository.savedStatuses).toContain("PROCESSING");
   });
 
-  it("accepts a legal provider batch without requiring the old fixed three-event sequence", async () => {
+  it("rejects an incomplete provider batch without persisting its legal prefix", async () => {
     const result = successfulProviderResult();
     result.receipts.splice(1, 1);
     const service = new TaskService(
@@ -908,13 +908,12 @@ describe("TaskService", () => {
     const finished = await service.confirmAndRunPreview(userId, created.taskId);
     const events = await service.getEvents(userId, created.taskId, 8);
 
-    expect(finished.status).toBe("SUCCEEDED");
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
     expect(events.map((event) => event.type)).toEqual([
-      "STAGE_STARTED",
-      "STAGE_COMPLETED",
-      "QUALITY_CHECK_STARTED",
-      "QUALITY_CHECK_PASSED",
-      "PREVIEW_READY"
+      "TASK_FAILED"
     ]);
   });
 
@@ -939,6 +938,45 @@ describe("TaskService", () => {
       status: "FAILED",
       failureCode: "PREVIEW_PROVIDER_FAILED"
     });
+    expect(events.map((event) => event.type)).toEqual([
+      ...creationEventTypes,
+      "TASK_FAILED"
+    ]);
+  });
+
+  it("rejects an oversized provider batch before traversing any receipt", async () => {
+    const result = successfulProviderResult();
+    let indexedReads = 0;
+    result.receipts = new Proxy(
+      Array.from({ length: 1_000 }, () => result.receipts[0]!),
+      {
+        get(target, property, receiver) {
+          if (typeof property === "string" && /^\d+$/.test(property)) {
+            indexedReads += 1;
+          }
+          return Reflect.get(target, property, receiver);
+        }
+      }
+    );
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new FixedResultImageProvider(result),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      passingGate()
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    });
+    expect(indexedReads).toBe(0);
     expect(events.map((event) => event.type)).toEqual([
       ...creationEventTypes,
       "TASK_FAILED"

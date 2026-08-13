@@ -384,7 +384,7 @@ export class TaskService {
       typeof result.watermarkedPreviewUrl !== "string" ||
       result.watermarkedPreviewUrl.length === 0 ||
       !Array.isArray(result.receipts) ||
-      result.receipts.length === 0 ||
+      result.receipts.length !== 3 ||
       input.tool !== "PORTRAIT_RETOUCH"
     ) {
       throw new Error("INVALID_PROVIDER_RESULT");

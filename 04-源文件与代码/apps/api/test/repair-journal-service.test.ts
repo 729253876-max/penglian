@@ -114,7 +114,7 @@ describe("RepairJournalService", () => {
   it.each([0, 1, 3])("allows %i diagnosis findings while preserving legal phase order", (findingCount) => {
     const history = creation(findingCount);
     const next = event("STAGE_STARTED", history.length + 1);
-    expect(journal.validateNext(history, next)).toBe(next);
+    expect(journal.validateNext(history, next)).toEqual(next);
   });
 
   it("requires protection before plans, both distinct plan directions, and one selection", () => {
@@ -159,7 +159,7 @@ describe("RepairJournalService", () => {
       payload: { direction: "CLEAR_RESCUE", level: "MODERATE" }
     });
 
-    expect(journal.validateNext(history, matching)).toBe(matching);
+    expect(journal.validateNext(history, matching)).toEqual(matching);
     expect(() => journal.validateNext(history, mismatched))
       .toThrow("TRACE_DIRECTION_MISMATCH");
   });
@@ -168,14 +168,14 @@ describe("RepairJournalService", () => {
     const history = processed();
     expect(() => journal.validateNext(history, event("QUALITY_CHECK_STARTED", history.length + 1, {
       evidenceSource: "PROVIDER_RECEIPT"
-    } as Partial<EditTraceEvent>))).toThrow("TRACE_AUTHORITY_INVALID");
+    } as Partial<EditTraceEvent>))).toThrow("TRACE_EVENT_INVALID");
     expect(() => journal.validateNext(history, event("QUALITY_CHECK_PASSED", history.length + 1)))
       .toThrow("TRACE_PREREQUISITE_MISSING");
 
     history.push(event("QUALITY_CHECK_STARTED", history.length + 1));
     expect(() => journal.validateNext(history, event("QUALITY_CHECK_PASSED", history.length + 1, {
       evidenceSource: "PROVIDER_RECEIPT"
-    } as Partial<EditTraceEvent>))).toThrow("TRACE_AUTHORITY_INVALID");
+    } as Partial<EditTraceEvent>))).toThrow("TRACE_EVENT_INVALID");
     expect(journal.validateNext(history, event("QUALITY_CHECK_PASSED", history.length + 1)).type)
       .toBe("QUALITY_CHECK_PASSED");
   });
@@ -197,7 +197,36 @@ describe("RepairJournalService", () => {
     history.push(event("QUALITY_CHECK_FAILED", history.length + 1));
     expect(() => journal.validateNext(history, event("RETRY_STARTED", history.length + 1, {
       payload: { attempt: 3 }
-    } as unknown as Partial<EditTraceEvent>))).toThrow("TRACE_RETRY_LIMIT_EXCEEDED");
+    } as unknown as Partial<EditTraceEvent>))).toThrow("TRACE_EVENT_INVALID");
+  });
+
+  it.each([
+    ["an extra field", { ...event("ASSET_APPROVED", 1), hiddenReasoning: "private" }],
+    ["an invalid payload", { ...event("ASSET_APPROVED", 1), payload: { metadataRemoved: false } }],
+    ["an invalid task field", { ...event("ASSET_APPROVED", 1), taskId: "" }]
+  ])("rejects %s in persisted history with a stable trace error", (_name, malformed) => {
+    expect(() => journal.validateNext(
+      [malformed as EditTraceEvent],
+      event("DIAGNOSIS_STARTED", 2)
+    )).toThrow("TRACE_EVENT_INVALID");
+  });
+
+  it("normalizes a throwing getter in history or next to a stable trace error", () => {
+    const throwingHistory = event("ASSET_APPROVED", 1);
+    Object.defineProperty(throwingHistory, "type", {
+      enumerable: true,
+      get: () => { throw new Error("untrusted history getter"); }
+    });
+    const throwingNext = event("DIAGNOSIS_STARTED", 2);
+    Object.defineProperty(throwingNext, "payload", {
+      enumerable: true,
+      get: () => { throw new Error("untrusted next getter"); }
+    });
+
+    expect(() => journal.validateNext([throwingHistory], event("DIAGNOSIS_STARTED", 2)))
+      .toThrow("TRACE_EVENT_INVALID");
+    expect(() => journal.validateNext([event("ASSET_APPROVED", 1)], throwingNext))
+      .toThrow("TRACE_EVENT_INVALID");
   });
 
   it("requires the last quality result to pass before preview", () => {
