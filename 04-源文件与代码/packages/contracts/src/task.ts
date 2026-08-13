@@ -137,7 +137,12 @@ const PreviewPayloadSchema = z.object({
   watermarked: z.literal(true),
   downloadable: z.literal(false)
 }).strict();
-const FailurePayloadSchema = z.object({ code: TaskFailureCodeSchema }).strict();
+const ProviderFailurePayloadSchema = z.object({
+  code: z.literal("PREVIEW_PROVIDER_FAILED")
+}).strict();
+const FidelityFailurePayloadSchema = z.object({
+  code: z.literal("FIDELITY_GATE_FAILED")
+}).strict();
 
 const EventIdentityShape = {
   eventId: z.string().min(1),
@@ -163,7 +168,8 @@ export const EditTraceEventSchema = z.union([
   z.object({ ...EventIdentityShape, type: z.literal("QUALITY_CHECK_FAILED"), phase: z.literal("QUALITY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("quality.fidelity.failed"), payload: QualityFailedPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("RETRY_STARTED"), phase: z.literal("RETOUCH"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("portrait.retry.started"), payload: RetryPayloadSchema }).strict(),
   z.object({ ...EventIdentityShape, type: z.literal("PREVIEW_READY"), phase: z.literal("DELIVERY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("preview.ready"), payload: PreviewPayloadSchema }).strict(),
-  z.object({ ...EventIdentityShape, type: z.literal("TASK_FAILED"), phase: z.literal("DELIVERY"), evidenceSource: z.enum(["SYSTEM_CHECK", "QUALITY_GATE"]), copyKey: z.literal("preview.provider.failed"), payload: FailurePayloadSchema }).strict()
+  z.object({ ...EventIdentityShape, type: z.literal("TASK_FAILED"), phase: z.literal("DELIVERY"), evidenceSource: z.literal("SYSTEM_CHECK"), copyKey: z.literal("preview.provider.failed"), payload: ProviderFailurePayloadSchema }).strict(),
+  z.object({ ...EventIdentityShape, type: z.literal("TASK_FAILED"), phase: z.literal("DELIVERY"), evidenceSource: z.literal("QUALITY_GATE"), copyKey: z.literal("preview.provider.failed"), payload: FidelityFailurePayloadSchema }).strict()
 ]);
 
 const PortraitTaskInputSchema = z.object({

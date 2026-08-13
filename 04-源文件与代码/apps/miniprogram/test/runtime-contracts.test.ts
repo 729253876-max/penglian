@@ -58,6 +58,22 @@ describe("mini-program runtime contracts", () => {
     })).toThrow("API_RESPONSE_INVALID");
   });
 
+  it.each([
+    ["PREVIEW_PROVIDER_FAILED", "QUALITY_GATE"],
+    ["FIDELITY_GATE_FAILED", "SYSTEM_CHECK"],
+    ["PORTRAIT_NOT_SUITABLE", "SYSTEM_CHECK"],
+    ["ASSET_NOT_APPROVED", "SYSTEM_CHECK"]
+  ])("rejects TASK_FAILED code %s from the wrong or non-terminal authority %s", (code, evidenceSource) => {
+    expect(() => parseEditTraceEvent({
+      ...legalEvent,
+      type: "TASK_FAILED",
+      phase: "DELIVERY",
+      evidenceSource,
+      copyKey: "preview.provider.failed",
+      payload: { code }
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
   it("strictly parses bounded portrait snapshots", () => {
     const snapshot = {
       taskId: "task-1",

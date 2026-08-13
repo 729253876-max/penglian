@@ -110,8 +110,9 @@ const eventRules = {
     },
     TASK_FAILED: {
         phase: "DELIVERY", copyKey: "preview.provider.failed", evidenceSources: ["SYSTEM_CHECK", "QUALITY_GATE"],
-        validatePayload: (value) => isRecord(value) && hasExactlyKeys(value, ["code"]) &&
-            typeof value.code === "string" && failureCodes.has(value.code)
+        validatePayload: (value, evidenceSource) => isRecord(value) && hasExactlyKeys(value, ["code"]) &&
+            ((value.code === "PREVIEW_PROVIDER_FAILED" && evidenceSource === "SYSTEM_CHECK") ||
+                (value.code === "FIDELITY_GATE_FAILED" && evidenceSource === "QUALITY_GATE"))
     }
 };
 function directionPayload(value) {
@@ -167,7 +168,8 @@ export function parseEditTraceEvent(value) {
         (value.copyKey === "portrait.plan.clear" &&
             planDirection === "CLEAR_RESCUE");
     if (value.phase !== rule.phase || !copyKeyAllowed || !planPairAllowed ||
-        !rule.evidenceSources.includes(value.evidenceSource) || !rule.validatePayload(value.payload)) {
+        !rule.evidenceSources.includes(value.evidenceSource) ||
+        !rule.validatePayload(value.payload, value.evidenceSource)) {
         throw new Error("API_RESPONSE_INVALID");
     }
     return value;

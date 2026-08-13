@@ -469,6 +469,26 @@ describe("task contracts", () => {
     })).toMatchObject({ noCharge: true, selectedDirection: "CLEAR_RESCUE" });
   });
 
+  it.each([
+    ["PREVIEW_PROVIDER_FAILED", "QUALITY_GATE"],
+    ["FIDELITY_GATE_FAILED", "SYSTEM_CHECK"],
+    ["PORTRAIT_NOT_SUITABLE", "SYSTEM_CHECK"],
+    ["ASSET_NOT_APPROVED", "SYSTEM_CHECK"]
+  ])("rejects TASK_FAILED code %s from the wrong or non-terminal authority %s", (code, evidenceSource) => {
+    expect(EditTraceEventSchema.safeParse({
+      eventId: "event-failed",
+      taskId: "task-1",
+      sequence: 9,
+      occurredAt: "2030-01-02T03:04:06.000Z",
+      visibility: "PREVIEW",
+      type: "TASK_FAILED",
+      phase: "DELIVERY",
+      evidenceSource,
+      copyKey: "preview.provider.failed",
+      payload: { code }
+    }).success).toBe(false);
+  });
+
   it("accepts a quality enhancement task", () => {
     expect(CreateTaskInputSchema.parse({
       tool: "QUALITY_ENHANCE",
