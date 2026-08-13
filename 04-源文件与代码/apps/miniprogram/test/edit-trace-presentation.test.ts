@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EditTraceEvent } from "@photo-ai/contracts";
-import { summarizeTrace } from "../miniprogram/services/edit-trace-presentation";
+import { presentTrace, summarizeTrace } from "../miniprogram/services/edit-trace-presentation";
 
 function event(
   phase: EditTraceEvent["phase"],
@@ -116,5 +116,42 @@ describe("summarizeTrace", () => {
         status: "COMPLETED"
       }
     ]);
+  });
+});
+
+describe("presentTrace", () => {
+  it("keeps all 15 public server event types in sequence with four public evidence labels", () => {
+    const types: EditTraceEvent["type"][] = [
+      "ASSET_APPROVED", "DIAGNOSIS_STARTED", "DIAGNOSIS_FINDING",
+      "PROTECTION_RECORDED", "PLAN_READY", "PLAN_SELECTED", "STAGE_STARTED",
+      "PARAM_DIRECTION_APPLIED", "STAGE_COMPLETED", "QUALITY_CHECK_STARTED",
+      "QUALITY_CHECK_PASSED", "QUALITY_CHECK_FAILED", "RETRY_STARTED",
+      "PREVIEW_READY", "TASK_FAILED"
+    ];
+    const phases: EditTraceEvent["phase"][] = [
+      "UPLOAD", "DIAGNOSIS", "DIAGNOSIS", "DIAGNOSIS", "PLAN", "PLAN",
+      "RETOUCH", "RETOUCH", "RETOUCH", "QUALITY", "QUALITY", "QUALITY",
+      "RETOUCH", "DELIVERY", "DELIVERY"
+    ];
+    const journal = types.map((type, index) => ({
+      ...event(phases[index]!, index + 1, type),
+      evidenceSource: type === "PLAN_SELECTED"
+        ? "USER_SELECTION"
+        : type.startsWith("QUALITY_") || type === "PREVIEW_READY"
+          ? "QUALITY_GATE"
+          : ["STAGE_STARTED", "PARAM_DIRECTION_APPLIED", "STAGE_COMPLETED"].includes(type)
+            ? "PROVIDER_RECEIPT"
+            : "SYSTEM_CHECK"
+    })) as EditTraceEvent[];
+
+    const rendered = presentTrace(journal);
+
+    expect(rendered.map((item) => item.sequence)).toEqual(
+      Array.from({ length: 15 }, (_, index) => index + 1)
+    );
+    expect(new Set(rendered.map((item) => item.evidenceLabel))).toEqual(new Set([
+      "系统检测", "用户选择", "处理服务回执", "项目质量检查"
+    ]));
+    expect(rendered.every((item) => item.text.length > 0)).toBe(true);
   });
 });

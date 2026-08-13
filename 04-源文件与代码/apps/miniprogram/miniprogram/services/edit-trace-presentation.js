@@ -1,3 +1,34 @@
+const eventCopy = {
+    "upload.asset.approved": "已确认私密上传资产可用于修复",
+    "portrait.diagnosis.started": "正在分析照片的光线、肤质与主体结构",
+    "portrait.diagnosis.light": "已记录照片中检测到的可修复问题",
+    "portrait.protection.recorded": "已记录人物与构图保护边界",
+    "portrait.plan.natural": "已制定保留真实肤质的自然救片方案",
+    "portrait.plan.clear": "已制定增强清晰度并保持人物真实的救片方案",
+    "portrait.plan.selected": "已按用户选择确认忠实救片方向",
+    "portrait.stage.retouch.started": "处理服务已开始恢复局部光影与肤质层次",
+    "portrait.parameter.direction": "处理服务已应用用户确认的精修方向",
+    "portrait.stage.retouch.completed": "处理服务已完成本轮局部调整",
+    "quality.started": "项目正在检查人物身份与非目标区域稳定性",
+    "quality.fidelity.failed": "项目忠实质量检查未通过",
+    "portrait.retry.started": "项目已开始一次质量重试",
+    "quality.fidelity.passed": "项目忠实质量检查通过",
+    "preview.ready": "水印预览已经通过项目质量门禁",
+    "preview.provider.failed": "任务失败并已停止，未生成可查看预览"
+};
+const evidenceLabels = {
+    SYSTEM_CHECK: "系统检测",
+    USER_SELECTION: "用户选择",
+    PROVIDER_RECEIPT: "处理服务回执",
+    QUALITY_GATE: "项目质量检查"
+};
+export function presentTrace(events) {
+    return events.map((event) => ({
+        ...event,
+        text: eventCopy[event.copyKey],
+        evidenceLabel: evidenceLabels[event.evidenceSource]
+    }));
+}
 const completedEventTypes = new Set([
     "PLAN_READY",
     "STAGE_COMPLETED",

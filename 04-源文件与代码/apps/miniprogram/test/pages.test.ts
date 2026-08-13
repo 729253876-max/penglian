@@ -44,6 +44,17 @@ function event(eventId: string, sequence: number, type: EditTraceEvent["type"] =
   };
 }
 
+function qualityPassed(eventId: string, sequence: number): EditTraceEvent {
+  return {
+    ...event(eventId, sequence),
+    type: "QUALITY_CHECK_PASSED",
+    phase: "QUALITY",
+    evidenceSource: "QUALITY_GATE",
+    copyKey: "quality.fidelity.passed",
+    payload: { checks: ["IDENTITY"] }
+  } as EditTraceEvent;
+}
+
 function pageInstance(config: PageConfig) {
   const page = Object.assign({
     data: structuredClone(config.data ?? {}),
@@ -333,6 +344,10 @@ describe("live page", () => {
     expect(template).toContain('bindtap="toggleAllEvents"');
     expect(template).toContain('wx:if="{{showAllEvents}}"');
     expect(template).toContain('wx:for="{{visibleEvents}}"');
+    expect(template).toContain("{{latestEvent.evidenceLabel}}");
+    expect(template).toContain("{{item.evidenceLabel}}");
+    expect(template).toContain('wx:for="{{failedChecks}}"');
+    expect(template).toContain("{{noChargeNote}}");
   });
 
   it("keeps detailed real events collapsed until the user expands them", async () => {
@@ -345,7 +360,7 @@ describe("live page", () => {
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
     api.getEvents.mockResolvedValueOnce({
-      items: [event("one", 1), event("ready", 2, "PREVIEW_READY")],
+      items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }],
       nextSequence: 2
     });
     const config = await loadPage("../miniprogram/pages/live/index");
@@ -363,7 +378,7 @@ describe("live page", () => {
       type: "PREVIEW_READY"
     });
     expect(page.data.traceSummary.map((item: { phase: string }) => item.phase)).toEqual([
-      "RETOUCH",
+      "QUALITY",
       "DELIVERY"
     ]);
 
@@ -396,7 +411,7 @@ describe("live page", () => {
       lastSequence: 2,
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
-    api.getEvents.mockResolvedValueOnce({ items: [event("one", 1), event("one", 1), event("ready", 2, "PREVIEW_READY")], nextSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
 
@@ -424,8 +439,8 @@ describe("live page", () => {
     });
     api.getEvents.mockResolvedValueOnce({
       items: [
-        event("one", 1),
-        event("ready", 2, "PREVIEW_READY")
+        qualityPassed("quality", 1),
+        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
       ],
       nextSequence: 2
     });
@@ -460,8 +475,8 @@ describe("live page", () => {
     });
     api.getEvents.mockResolvedValueOnce({
       items: [
-        event("one", 1),
-        event("ready", 2, "PREVIEW_READY")
+        qualityPassed("quality", 1),
+        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
       ],
       nextSequence: 2
     });
@@ -497,8 +512,8 @@ describe("live page", () => {
     });
     api.getEvents.mockResolvedValueOnce({
       items: [
-        event("one", 1),
-        event("ready", 2, "PREVIEW_READY")
+        qualityPassed("quality", 1),
+        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
       ],
       nextSequence: 2
     });
@@ -644,7 +659,7 @@ describe("live page", () => {
         lastSequence: 3
       });
     api.runPreview.mockReturnValueOnce(firstPreview.promise).mockResolvedValueOnce({ taskId: "task-b" });
-    api.getEvents.mockResolvedValueOnce({ items: [event("b-ready", 1, "PREVIEW_READY")], nextSequence: 1 });
+    api.getEvents.mockResolvedValueOnce({ items: [{ ...event("b-ready", 1, "PREVIEW_READY"), taskId: "task-b" }], nextSequence: 1 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const first = pageInstance(config);
     const second = pageInstance(config);
@@ -693,9 +708,109 @@ describe("live page", () => {
     await vi.runAllTimersAsync();
     expect(page.data.ready).toBe(true);
   });
+
+  it("does not restore ready when a succeeded snapshot lacks project quality evidence", async () => {
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      previewUrl: "https://example.invalid/watermarked.jpg"
+    });
+    api.getEvents.mockResolvedValueOnce({ items: [
+      event("one", 1), event("ready", 2, "PREVIEW_READY")
+    ], nextSequence: 2 });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(page.data.ready).toBe(false);
+    expect(page.data.error).toBe("修复记录暂时不完整，请稍后返回重试。");
+  });
+
+  it.each([
+    ["gap", [event("seven", 7)]],
+    ["duplicate sequence", [event("one-a", 1), event("one-b", 1)]],
+    ["out of order", [event("two", 2), event("one", 1)]],
+    ["task mismatch", [{ ...event("one", 1), taskId: "task-other" }]]
+  ])("full-refetches once then stops on a persistent %s without becoming ready", async (_name, malformed) => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0
+    });
+    api.getEvents
+      .mockResolvedValueOnce({ items: malformed, nextSequence: malformed.at(-1)!.sequence })
+      .mockResolvedValueOnce({ items: malformed, nextSequence: malformed.at(-1)!.sequence });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await vi.runAllTimersAsync();
+
+    expect(api.getEvents.mock.calls.map((call) => call[1])).toEqual([0, 0]);
+    expect(page.data.ready).toBe(false);
+    expect(page.data.error).toBe("修复记录暂时不完整，请稍后返回重试。");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("shows actual fidelity failures and no-charge outcome from the terminal snapshot", async () => {
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 1,
+      failureCode: "FIDELITY_GATE_FAILED", noCharge: true
+    });
+    api.getEvents.mockResolvedValueOnce({ items: [
+      { ...event("quality-failed", 1), type: "QUALITY_CHECK_FAILED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.failed", payload: { checks: ["IDENTITY", "ARTIFACTS"], failedChecks: ["IDENTITY", "ARTIFACTS"] } },
+      { ...event("failed", 2, "TASK_FAILED"), evidenceSource: "QUALITY_GATE", payload: { code: "FIDELITY_GATE_FAILED" } }
+    ], nextSequence: 2 });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(page.data.failureMessage).toBe("无法在保持本人特征的前提下完成。");
+    expect(page.data.failedChecks).toEqual(["人物身份", "伪影与生成细节"]);
+    expect(page.data.noChargeNote).toBe("本次未生成可查看预览，不扣免费次数或积分。");
+  });
 });
 
 describe("preview page", () => {
+  it("shows a real preview only for a continuous succeeded quality-gated task", async () => {
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      previewUrl: "https://example.invalid/watermarked.jpg"
+    });
+    api.getEvents.mockResolvedValueOnce({ items: [
+      { ...event("quality", 1), type: "QUALITY_CHECK_PASSED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.passed", payload: { checks: ["IDENTITY"] } },
+      { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
+    ], nextSequence: 2 });
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(page.data.canPreview).toBe(true);
+    expect(page.data.previewUrl).toBe("https://example.invalid/watermarked.jpg");
+    expect(page.data.originalPlaceholder).toBe("/assets/demo-before.svg");
+    expect(page.data.trace).toHaveLength(2);
+  });
+
+  it("returns to live when quality evidence is incomplete", async () => {
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      previewUrl: "https://example.invalid/watermarked.jpg"
+    });
+    api.getEvents.mockResolvedValueOnce({ items: [event("ready", 2, "PREVIEW_READY")], nextSequence: 2 });
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(page.data.canPreview).toBe(false);
+    expect(wx.redirectTo).toHaveBeenCalledWith({ url: "/pages/live/index?taskId=task-1" });
+  });
+
   it("keeps the product-demo boundary visible with safe image accessibility copy", async () => {
     const [planTemplate, previewTemplate] = await Promise.all([
       readFile(
@@ -723,6 +838,10 @@ describe("preview page", () => {
     expect(previewTemplate).toContain(
       'aria-label="产品示例原图，非真实用户照片"'
     );
+    expect(previewTemplate).toContain('src="{{previewUrl}}"');
+    expect(previewTemplate).toContain('src="{{originalPlaceholder}}"');
+    expect(previewTemplate).toContain('bindtap="viewFullTrace"');
+    expect(previewTemplate).toContain('wx:for="{{trace}}"');
   });
 
   it("clamps comparison movement and keeps details collapsed by default", async () => {
