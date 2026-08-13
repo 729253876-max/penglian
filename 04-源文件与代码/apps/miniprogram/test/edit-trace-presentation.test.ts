@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EditTraceEvent } from "@photo-ai/contracts";
-import { presentTrace, summarizeTrace } from "../miniprogram/services/edit-trace-presentation";
+import { failureEvidence, presentTrace, successEvidence, summarizeTrace } from "../miniprogram/services/edit-trace-presentation";
 
 function event(
   phase: EditTraceEvent["phase"],
@@ -153,5 +153,32 @@ describe("presentTrace", () => {
       "系统检测", "用户选择", "处理服务回执", "项目质量检查"
     ]));
     expect(rendered.every((item) => item.text.length > 0)).toBe(true);
+  });
+});
+
+describe("terminal evidence", () => {
+  const passed = (sequence: number) => ({ ...event("QUALITY", sequence, "QUALITY_CHECK_PASSED"), evidenceSource: "QUALITY_GATE" }) as EditTraceEvent;
+  const ready = (sequence: number) => ({ ...event("DELIVERY", sequence, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }) as EditTraceEvent;
+  const snapshot = { taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" } as const;
+
+  it("accepts only an aligned succeeded snapshot ending in adjacent project passed and ready evidence", () => {
+    expect(successEvidence("task-1", snapshot, [passed(1), ready(2)], 2)).toBe(true);
+  });
+
+  it.each([
+    ["route mismatch", "other", snapshot, [passed(1), ready(2)], 2],
+    ["snapshot task mismatch", "task-1", { ...snapshot, taskId: "other" }, [passed(1), ready(2)], 2],
+    ["truncated snapshot", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), ready(2)], 2],
+    ["failed after passed", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), event("QUALITY", 2, "QUALITY_CHECK_FAILED"), ready(3)], 3],
+    ["extra after ready", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), ready(2), event("DELIVERY", 3, "TASK_FAILED")], 3]
+  ])("rejects %s", (_name, route, task, events, next) => {
+    expect(successEvidence(route as string, task as any, events as EditTraceEvent[], next as number)).toBe(false);
+  });
+
+  it("uses the final TASK_FAILED code and nearest failed checks while rejecting snapshot conflicts", () => {
+    const failed = { ...event("QUALITY", 1, "QUALITY_CHECK_FAILED"), payload: { checks: ["IDENTITY", "ARTIFACTS"], failedChecks: ["IDENTITY", "ARTIFACTS"] } } as EditTraceEvent;
+    const terminal = { ...event("DELIVERY", 2, "TASK_FAILED"), payload: { code: "FIDELITY_GATE_FAILED" } } as EditTraceEvent;
+    expect(failureEvidence("task-1", { ...snapshot, status: "FAILED", failureCode: "FIDELITY_GATE_FAILED" } as any, [failed, terminal], 2)).toEqual({ code: "FIDELITY_GATE_FAILED", failedChecks: ["IDENTITY", "ARTIFACTS"] });
+    expect(failureEvidence("task-1", { ...snapshot, status: "FAILED", failureCode: "PREVIEW_PROVIDER_FAILED" } as any, [failed, terminal], 2)).toBeUndefined();
   });
 });

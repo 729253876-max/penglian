@@ -1,3 +1,36 @@
+function alignedJournal(routeTaskId, snapshot, events, nextSequence) {
+    return snapshot.taskId === routeTaskId &&
+        nextSequence === snapshot.lastSequence &&
+        events.length === snapshot.lastSequence &&
+        events.every((event, index) => event.taskId === routeTaskId && event.sequence === index + 1);
+}
+export function successEvidence(routeTaskId, snapshot, events, nextSequence) {
+    if (snapshot.status !== "SUCCEEDED" || !snapshot.previewUrl ||
+        !alignedJournal(routeTaskId, snapshot, events, nextSequence) || events.length < 2) {
+        return false;
+    }
+    const passed = events.at(-2);
+    const ready = events.at(-1);
+    return passed?.type === "QUALITY_CHECK_PASSED" && passed.evidenceSource === "QUALITY_GATE" &&
+        ready?.type === "PREVIEW_READY" && ready.evidenceSource === "QUALITY_GATE";
+}
+export function failureEvidence(routeTaskId, snapshot, events, nextSequence) {
+    if (!alignedJournal(routeTaskId, snapshot, events, nextSequence))
+        return undefined;
+    const terminal = events.at(-1);
+    if (terminal?.type !== "TASK_FAILED")
+        return undefined;
+    const code = terminal.payload.code;
+    if (snapshot.failureCode !== undefined && snapshot.failureCode !== code)
+        return undefined;
+    const qualityFailure = events.findLast((event) => event.type === "QUALITY_CHECK_FAILED");
+    return {
+        code,
+        failedChecks: qualityFailure?.type === "QUALITY_CHECK_FAILED"
+            ? [...qualityFailure.payload.failedChecks]
+            : []
+    };
+}
 const eventCopy = {
     "upload.asset.approved": "已确认私密上传资产可用于修复",
     "portrait.diagnosis.started": "正在分析照片的光线、肤质与主体结构",

@@ -437,6 +437,7 @@ describe("live page", () => {
       tool: "PORTRAIT_RETOUCH",
       lastSequence: 2
     });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
     api.getEvents.mockResolvedValueOnce({
       items: [
         qualityPassed("quality", 1),
@@ -473,6 +474,7 @@ describe("live page", () => {
       tool: "PORTRAIT_RETOUCH",
       lastSequence: 2
     });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
     api.getEvents.mockResolvedValueOnce({
       items: [
         qualityPassed("quality", 1),
@@ -488,7 +490,7 @@ describe("live page", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    expect(page.data.visibleEvents).toEqual([]);
+    expect(page.data.visibleEvents).toHaveLength(2);
 
     config.toggleReduceMotion.call(page, { detail: { value: true } });
 
@@ -657,9 +659,10 @@ describe("live page", () => {
         status: "AWAITING_CONFIRMATION",
         tool: "PORTRAIT_RETOUCH",
         lastSequence: 3
-      });
+      })
+      .mockResolvedValueOnce({ taskId: "task-b", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
     api.runPreview.mockReturnValueOnce(firstPreview.promise).mockResolvedValueOnce({ taskId: "task-b" });
-    api.getEvents.mockResolvedValueOnce({ items: [{ ...event("b-ready", 1, "PREVIEW_READY"), taskId: "task-b" }], nextSequence: 1 });
+    api.getEvents.mockResolvedValueOnce({ items: [{ ...qualityPassed("b-quality", 1), taskId: "task-b" }, { ...event("b-ready", 2, "PREVIEW_READY"), taskId: "task-b", evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const first = pageInstance(config);
     const second = pageInstance(config);
@@ -674,7 +677,7 @@ describe("live page", () => {
 
     expect(api.getEvents).toHaveBeenCalledTimes(1);
     expect(first.data.visibleEvents).toEqual([]);
-    expect(second.data.visibleEvents).toHaveLength(1);
+    expect(second.data.visibleEvents).toHaveLength(2);
     expect(second.data.ready).toBe(true);
   });
 
@@ -704,9 +707,43 @@ describe("live page", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     expect(api.getEvents).toHaveBeenCalledTimes(2);
-    retryRequest.resolve({ items: [event("ready", 1, "PREVIEW_READY")], nextSequence: 1 });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+    retryRequest.resolve({ items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
     await vi.runAllTimersAsync();
     expect(page.data.ready).toBe(true);
+  });
+
+  it("full-refetches once when the strict API parser rejects an incremental page", async () => {
+    vi.useFakeTimers();
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 });
+    api.getEvents.mockRejectedValueOnce(new Error("API_RESPONSE_INVALID")).mockResolvedValueOnce({ items: [], nextSequence: 0 });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(api.getEvents.mock.calls.map((call) => call[1])).toEqual([0, 0]);
+    config.onUnload.call(page);
+  });
+
+  it("does not become ready from preview-ready while the refreshed snapshot is still processing", async () => {
+    api.getTask
+      .mockResolvedValueOnce({ taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 })
+      .mockResolvedValueOnce({ taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: [qualityPassed("q", 1), { ...event("r", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(page.data.ready).toBe(false);
+    expect(page.data.error).toBeTruthy();
+  });
+
+  it("encodes the task id when opening preview", async () => {
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+    page.data.taskId = "task /?#% 中文";
+    config.openPreview.call(page);
+    expect(wx.navigateTo).toHaveBeenCalledWith({ url: `/pages/preview/index?taskId=${encodeURIComponent(page.data.taskId)}` });
   });
 
   it("does not restore ready when a succeeded snapshot lacks project quality evidence", async () => {
@@ -754,7 +791,7 @@ describe("live page", () => {
 
   it("shows actual fidelity failures and no-charge outcome from the terminal snapshot", async () => {
     api.getTask.mockResolvedValueOnce({
-      taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 1,
+      taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
       failureCode: "FIDELITY_GATE_FAILED", noCharge: true
     });
     api.getEvents.mockResolvedValueOnce({ items: [
@@ -807,6 +844,24 @@ describe("preview page", () => {
     config.onLoad.call(page, { taskId: "task-1" });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
+    expect(page.data.canPreview).toBe(false);
+    expect(wx.redirectTo).toHaveBeenCalledWith({ url: "/pages/live/index?taskId=task-1" });
+  });
+
+  it.each([
+    ["snapshot task mismatch", { taskId: "other", lastSequence: 2 }, [qualityPassed("q", 1), { ...event("r", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], 2],
+    ["truncated snapshot", { taskId: "task-1", lastSequence: 3 }, [qualityPassed("q", 1), { ...event("r", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], 2],
+    ["failed quality after pass", { taskId: "task-1", lastSequence: 3 }, [qualityPassed("q", 1), { ...event("f", 2), type: "QUALITY_CHECK_FAILED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", payload: { checks: ["IDENTITY"], failedChecks: ["IDENTITY"] } }, { ...event("r", 3, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], 3]
+  ])("returns to live for %s", async (_name, snapshotPatch, items, nextSequence) => {
+    api.getTask.mockResolvedValueOnce({
+      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      previewUrl: "https://example.invalid/p.jpg", ...snapshotPatch
+    });
+    api.getEvents.mockResolvedValueOnce({ items, nextSequence });
+    const config = await loadPage("../miniprogram/pages/preview/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { taskId: "task-1" });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(page.data.canPreview).toBe(false);
     expect(wx.redirectTo).toHaveBeenCalledWith({ url: "/pages/live/index?taskId=task-1" });
   });
