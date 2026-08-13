@@ -81,11 +81,13 @@ afterEach(() => {
 });
 
 describe("plan page", () => {
-  it("accepts only a UUID asset and defaults to the natural rescue plan", async () => {
+  it.each([approvedAssetId, encodeURIComponent(approvedAssetId)])(
+    "accepts raw and encoded UUID assets and defaults to the natural rescue plan",
+    async (assetId) => {
     const config = await loadPage("../miniprogram/pages/plan/index");
     const page = pageInstance(config);
 
-    config.onLoad.call(page, { assetId: approvedAssetId });
+    config.onLoad.call(page, { assetId });
 
     expect(page.data.assetId).toBe(approvedAssetId);
     expect(page.data.selectedDirection).toBe("NATURAL_RESCUE");
@@ -102,16 +104,24 @@ describe("plan page", () => {
     expect(page.data.plans[0].forbiddenOperations).toHaveLength(5);
     expect(page.data.plans[1].forbiddenOperations).toEqual(page.data.plans[0].forbiddenOperations);
     expect(page.data.plans[1].warning).toContain("噪点");
-  });
+    }
+  );
 
   it("rejects missing and malformed asset ids without creating a task", async () => {
     const config = await loadPage("../miniprogram/pages/plan/index");
-    for (const options of [{}, { assetId: "demo-portrait-001" }, { assetId: [approvedAssetId] }]) {
+    for (const options of [
+      {},
+      { assetId: "demo-portrait-001" },
+      { assetId: [approvedAssetId] },
+      { assetId: "%" },
+      { assetId: "%E0%A4%A" }
+    ]) {
       const page = pageInstance(config);
-      config.onLoad.call(page, options);
+      expect(() => config.onLoad.call(page, options)).not.toThrow();
       await config.startPreview.call(page);
       expect(page.data.assetId).toBe("");
       expect(page.data.error).toBe("照片资产缺失，请重新完成私密上传。");
+      expect(page.data.errorHint).toBe("请返回上传页，重新完成照片安全检查。");
     }
     expect(api.createTask).not.toHaveBeenCalled();
   });
@@ -180,6 +190,17 @@ describe("plan page", () => {
     await config.startPreview.call(page);
     expect(page.data.submitting).toBe(false);
     expect(page.data.error).toContain("本地 API");
+    expect(page.data.errorHint).toBe("检查本地 API 后，再次点击“开始生成水印预览”。");
+  });
+
+  it("renders API troubleshooting only for task creation failures", async () => {
+    const template = await readFile(
+      new URL("../miniprogram/pages/plan/index.wxml", import.meta.url),
+      "utf8"
+    );
+
+    expect(template).toContain('<view wx:if="{{errorHint}}" class="error-hint">{{errorHint}}</view>');
+    expect(template).not.toContain('<view class="error-hint">检查本地 API');
   });
   it("does not navigate or change a disposed submission when its request resolves", async () => {
     const deferred = Promise.withResolvers<{ taskId: string }>();

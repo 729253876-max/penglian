@@ -23,11 +23,16 @@ function current(page, runtime, generation, requestId) {
     return runtime.alive && runtime.generation === generation && runtimes.get(page) === runtime && (requestId === undefined || runtime.requestId === requestId);
 }
 Page({
-    data: { assetId: "", plans, selectedDirection: "NATURAL_RESCUE", submitting: false, error: "" },
+    data: { assetId: "", plans, selectedDirection: "NATURAL_RESCUE", submitting: false, error: "", errorHint: "" },
     onLoad(options = {}) {
         begin(this);
-        const assetId = validUuid(options.assetId) ? options.assetId : "";
-        this.setData({ assetId, selectedDirection: "NATURAL_RESCUE", error: assetId ? "" : "照片资产缺失，请重新完成私密上传。" });
+        const assetId = parseAssetId(options.assetId);
+        this.setData({
+            assetId,
+            selectedDirection: "NATURAL_RESCUE",
+            error: assetId ? "" : "照片资产缺失，请重新完成私密上传。",
+            errorHint: assetId ? "" : "请返回上传页，重新完成照片安全检查。"
+        });
     },
     onShow() {
         const runtime = runtimes.get(this);
@@ -48,13 +53,16 @@ Page({
         const direction = event.currentTarget?.dataset?.direction;
         if (direction !== "NATURAL_RESCUE" && direction !== "CLEAR_RESCUE")
             return;
-        this.setData({ selectedDirection: direction, error: "" });
+        this.setData({ selectedDirection: direction, error: "", errorHint: "" });
     },
     async startPreview() {
         if (this.data.submitting)
             return;
         if (!validUuid(this.data.assetId)) {
-            this.setData({ error: "照片资产缺失，请重新完成私密上传。" });
+            this.setData({
+                error: "照片资产缺失，请重新完成私密上传。",
+                errorHint: "请返回上传页，重新完成照片安全检查。"
+            });
             return;
         }
         const selectedPlan = plans.find((plan) => plan.direction === this.data.selectedDirection);
@@ -68,7 +76,7 @@ Page({
         const requestId = runtime.requestId + 1;
         runtime.requestId = requestId;
         runtime.pendingRequest = true;
-        this.setData({ submitting: true, error: "" });
+        this.setData({ submitting: true, error: "", errorHint: "" });
         try {
             const task = await createTask({
                 tool: "PORTRAIT_RETOUCH",
@@ -86,10 +94,25 @@ Page({
             if (!current(page, runtime, generation, requestId))
                 return;
             runtime.pendingRequest = false;
-            this.setData({ submitting: false, error: "暂时无法创建任务，请确认本地 API 已启动后重试。" });
+            this.setData({
+                submitting: false,
+                error: "暂时无法创建任务，请确认本地 API 已启动后重试。",
+                errorHint: "检查本地 API 后，再次点击“开始生成水印预览”。"
+            });
         }
     }
 });
 function validUuid(value) {
     return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+function parseAssetId(value) {
+    if (typeof value !== "string")
+        return "";
+    try {
+        const decoded = decodeURIComponent(value);
+        return validUuid(decoded) ? decoded : "";
+    }
+    catch {
+        return "";
+    }
 }

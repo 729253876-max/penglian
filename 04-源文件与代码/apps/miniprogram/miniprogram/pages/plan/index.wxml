@@ -17,6 +17,6 @@
   <view class="card action-card">
     <button class="button-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="startPreview">开始生成水印预览</button>
     <view wx:if="{{submitting}}" class="status">正在创建精修任务，请勿重复提交。</view>
-    <view wx:if="{{error}}" class="error">{{error}}<view class="error-hint">检查本地 API 后，再次点击“开始生成水印预览”。</view></view>
+    <view wx:if="{{error}}" class="error">{{error}}<view wx:if="{{errorHint}}" class="error-hint">{{errorHint}}</view></view>
   </view>
 </view>
