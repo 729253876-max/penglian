@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { EditTraceEvent, TaskSnapshot } from "@photo-ai/contracts";
 import { buildApp, type BuildAppOptions } from "../src/app.js";
 import type { TaskApiService } from "../src/routes/tasks.js";
-import { StageADemoAssetReader } from "../src/application/task-service.js";
+import { StageADemoAssetReader, TaskService } from "../src/application/task-service.js";
+import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
+import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js";
 
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
@@ -12,9 +14,14 @@ const portraitInput = {
 } as const;
 
 function buildTaskApp(options: BuildAppOptions = {}) {
+  const demoAssetReader = new StageADemoAssetReader();
   const app = buildApp({
     ...options,
-    portraitAssetReader: new StageADemoAssetReader(),
+    service: options.service ?? new TaskService(
+      new InMemoryTaskRepository(),
+      new MockImageProvider(),
+      demoAssetReader
+    ),
     sessionAuthenticator: {
       authenticate: async () => ({ userId: "task-api-user" })
     }
@@ -56,6 +63,25 @@ class ThrowingTaskService implements TaskApiService {
 }
 
 describe("tasks API", () => {
+  it("does not expose a demo task lifecycle when authentication is configured without a task service", async () => {
+    const app = buildApp({
+      sessionAuthenticator: { authenticate: async () => ({ userId: "user-1" }) }
+    });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks",
+        headers: { authorization: "Bearer production-like-token" },
+        payload: portraitInput
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ code: "INTERNAL_ERROR" });
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each([
     ["missing", new Error("ASSET_NOT_APPROVED")],
     ["cross-user", new Error("ASSET_NOT_APPROVED")]

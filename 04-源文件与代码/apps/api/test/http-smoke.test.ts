@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { StageADemoAssetReader } from "../src/application/task-service.js";
+import { StageADemoAssetReader, TaskService } from "../src/application/task-service.js";
+import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
+import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js";
 
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
@@ -22,7 +24,11 @@ describe("real HTTP smoke on port 3100", () => {
 
   it("serves the stage-A task lifecycle over a real TCP listener", async () => {
     app = buildApp({
-      portraitAssetReader: new StageADemoAssetReader(),
+      service: new TaskService(
+        new InMemoryTaskRepository(),
+        new MockImageProvider(),
+        new StageADemoAssetReader()
+      ),
       sessionAuthenticator: {
         authenticate: async () => ({ userId: "http-smoke-user" })
       }
