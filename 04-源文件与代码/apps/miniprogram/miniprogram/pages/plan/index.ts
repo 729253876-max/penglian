@@ -1,6 +1,12 @@
 import { createTask } from "../../services/api";
+import type { PortraitPlanDirection } from "@photo-ai/contracts";
 
-const input = { tool: "PORTRAIT_RETOUCH" as const, inputAssetId: "demo-portrait-001", direction: "NATURAL_RESCUE" as const, parameters: { naturalness: 85, detailLevel: 35 } };
+const protections = ["保留人物身份", "保留五官结构", "保留发型", "保留服装", "保留姿势", "保留人物数量", "保留主要构图"];
+const forbiddenOperations = ["禁止换脸", "禁止改变脸型", "禁止改变身形", "禁止生成妆容", "禁止替换背景"];
+const plans = [
+  { direction: "NATURAL_RESCUE" as const, title: "自然救片", naturalness: 85, detailLevel: 35, recommended: true, warning: "", protections, forbiddenOperations },
+  { direction: "CLEAR_RESCUE" as const, title: "清晰救片", naturalness: 75, detailLevel: 60, recommended: false, warning: "增强细节可能同时暴露轻微噪点。", protections, forbiddenOperations }
+];
 
 type Runtime = {
   alive: boolean;
@@ -28,8 +34,12 @@ function current(page: object, runtime: Runtime, generation: number, requestId?:
 }
 
 Page({
-  data: { submitting: false, error: "" },
-  onLoad() { begin(this as unknown as object); },
+  data: { assetId: "", plans, selectedDirection: "NATURAL_RESCUE" as PortraitPlanDirection, submitting: false, error: "" },
+  onLoad(options: Record<string, unknown> = {}) {
+    begin(this as unknown as object);
+    const assetId = validUuid(options.assetId) ? options.assetId : "";
+    this.setData({ assetId, selectedDirection: "NATURAL_RESCUE", error: assetId ? "" : "照片资产缺失，请重新完成私密上传。" });
+  },
   onShow() {
     const runtime = runtimes.get(this as unknown as object);
     if (runtime?.alive) {
@@ -44,8 +54,19 @@ Page({
     runtime.generation += 1;
     runtimes.delete(page);
   },
+  selectDirection(event: WechatMiniprogram.BaseEvent) {
+    const direction = event.currentTarget?.dataset?.direction;
+    if (direction !== "NATURAL_RESCUE" && direction !== "CLEAR_RESCUE") return;
+    this.setData({ selectedDirection: direction, error: "" });
+  },
   async startPreview() {
     if (this.data.submitting) return;
+    if (!validUuid(this.data.assetId)) {
+      this.setData({ error: "照片资产缺失，请重新完成私密上传。" });
+      return;
+    }
+    const selectedPlan = plans.find((plan) => plan.direction === this.data.selectedDirection);
+    if (!selectedPlan) return;
     const page = this as unknown as object;
     const runtime = runtimes.get(page) ?? begin(page);
     if (runtime.pendingRequest) return;
@@ -55,7 +76,12 @@ Page({
     runtime.pendingRequest = true;
     this.setData({ submitting: true, error: "" });
     try {
-      const task = await createTask(input);
+      const task = await createTask({
+        tool: "PORTRAIT_RETOUCH",
+        inputAssetId: this.data.assetId,
+        direction: selectedPlan.direction,
+        parameters: { naturalness: selectedPlan.naturalness, detailLevel: selectedPlan.detailLevel }
+      });
       if (!current(page, runtime, generation, requestId)) return;
       runtime.pendingRequest = false;
       this.setData({ submitting: false });
@@ -67,3 +93,7 @@ Page({
     }
   }
 });
+
+function validUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}

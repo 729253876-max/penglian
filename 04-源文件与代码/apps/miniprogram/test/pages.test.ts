@@ -15,6 +15,7 @@ const productEvents = {
 };
 const storage = new Map<string, unknown>();
 const reduceMotionStorageKey = "photo-ai:reduce-motion";
+const approvedAssetId = "22222222-2222-4222-8222-222222222222";
 
 vi.mock("../miniprogram/services/api", () => api);
 vi.mock("../miniprogram/services/product-events", () => ({ productEvents }));
@@ -80,11 +81,66 @@ afterEach(() => {
 });
 
 describe("plan page", () => {
+  it("accepts only a UUID asset and defaults to the natural rescue plan", async () => {
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    const page = pageInstance(config);
+
+    config.onLoad.call(page, { assetId: approvedAssetId });
+
+    expect(page.data.assetId).toBe(approvedAssetId);
+    expect(page.data.selectedDirection).toBe("NATURAL_RESCUE");
+    expect(page.data.plans.map((plan: { direction: string; naturalness: number; detailLevel: number }) => ({
+      direction: plan.direction,
+      naturalness: plan.naturalness,
+      detailLevel: plan.detailLevel
+    }))).toEqual([
+      { direction: "NATURAL_RESCUE", naturalness: 85, detailLevel: 35 },
+      { direction: "CLEAR_RESCUE", naturalness: 75, detailLevel: 60 }
+    ]);
+    expect(page.data.plans[0].protections).toHaveLength(7);
+    expect(page.data.plans[1].protections).toEqual(page.data.plans[0].protections);
+    expect(page.data.plans[0].forbiddenOperations).toHaveLength(5);
+    expect(page.data.plans[1].forbiddenOperations).toEqual(page.data.plans[0].forbiddenOperations);
+    expect(page.data.plans[1].warning).toContain("噪点");
+  });
+
+  it("rejects missing and malformed asset ids without creating a task", async () => {
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    for (const options of [{}, { assetId: "demo-portrait-001" }, { assetId: [approvedAssetId] }]) {
+      const page = pageInstance(config);
+      config.onLoad.call(page, options);
+      await config.startPreview.call(page);
+      expect(page.data.assetId).toBe("");
+      expect(page.data.error).toBe("照片资产缺失，请重新完成私密上传。");
+    }
+    expect(api.createTask).not.toHaveBeenCalled();
+  });
+
+  it("accepts only whitelisted dataset directions and submits fixed selected parameters", async () => {
+    api.createTask.mockResolvedValue({ taskId: "task-1" });
+    const config = await loadPage("../miniprogram/pages/plan/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { assetId: approvedAssetId });
+
+    config.selectDirection.call(page, { currentTarget: { dataset: { direction: "CLEAR_RESCUE" } } });
+    config.selectDirection.call(page, { currentTarget: { dataset: { direction: "CLEAR_RESCUE&inputAssetId=attacker" } } });
+    expect(page.data.selectedDirection).toBe("CLEAR_RESCUE");
+
+    await config.startPreview.call(page);
+    expect(api.createTask).toHaveBeenCalledWith({
+      tool: "PORTRAIT_RETOUCH",
+      inputAssetId: approvedAssetId,
+      direction: "CLEAR_RESCUE",
+      parameters: { naturalness: 75, detailLevel: 60 }
+    });
+  });
+
   it("prevents a second visible submission while the first task is pending", async () => {
     const deferred = Promise.withResolvers<{ taskId: string }>();
     api.createTask.mockReturnValueOnce(deferred.promise);
     const config = await loadPage("../miniprogram/pages/plan/index");
     const page = pageInstance(config);
+    config.onLoad.call(page, { assetId: approvedAssetId });
 
     const first = config.startPreview.call(page);
     const second = config.startPreview.call(page);
@@ -102,7 +158,7 @@ describe("plan page", () => {
     const config = await loadPage("../miniprogram/pages/plan/index");
     const page = pageInstance(config);
 
-    config.onLoad.call(page);
+    config.onLoad.call(page, { assetId: approvedAssetId });
     const first = config.startPreview.call(page);
     config.onShow.call(page);
     const second = config.startPreview.call(page);
@@ -119,6 +175,7 @@ describe("plan page", () => {
     api.createTask.mockRejectedValueOnce(new Error("offline"));
     const config = await loadPage("../miniprogram/pages/plan/index");
     const page = pageInstance(config);
+    config.onLoad.call(page, { assetId: approvedAssetId });
 
     await config.startPreview.call(page);
     expect(page.data.submitting).toBe(false);
@@ -131,10 +188,10 @@ describe("plan page", () => {
     const first = pageInstance(config);
     const second = pageInstance(config);
 
-    config.onLoad.call(first);
+    config.onLoad.call(first, { assetId: approvedAssetId });
     const pending = config.startPreview.call(first);
     config.onUnload.call(first);
-    config.onLoad.call(second);
+    config.onLoad.call(second, { assetId: approvedAssetId });
     await config.startPreview.call(second);
     deferred.resolve({ taskId: "task-a" });
     await pending;
@@ -150,13 +207,31 @@ describe("plan page", () => {
     const config = await loadPage("../miniprogram/pages/plan/index");
     const page = pageInstance(config);
 
-    config.onLoad.call(page);
+    config.onLoad.call(page, { assetId: approvedAssetId });
     const pending = config.startPreview.call(page);
     config.onUnload.call(page);
     deferred.reject(new Error("offline"));
     await pending;
 
     expect(page.data.error).toBe("");
+  });
+});
+
+describe("upload page", () => {
+  it("navigates with only an encoded valid approved asset id", async () => {
+    const config = await loadPage("../miniprogram/pages/upload/index");
+    const page = pageInstance(config);
+
+    page.setData({ canContinue: true, assetId: approvedAssetId });
+    config.continueEditing.call(page);
+    expect(wx.navigateTo).toHaveBeenCalledWith({
+      url: `/pages/plan/index?assetId=${encodeURIComponent(approvedAssetId)}`
+    });
+
+    vi.mocked(wx.navigateTo).mockClear();
+    page.setData({ canContinue: true, assetId: `${approvedAssetId}&scenario=attacker` });
+    config.continueEditing.call(page);
+    expect(wx.navigateTo).not.toHaveBeenCalled();
   });
 });
 
