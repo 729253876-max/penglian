@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isProxy } from "node:util/types";
 import type {
   CreateTaskInput,
   EditTraceEvent,
@@ -87,6 +88,12 @@ export class StageADemoAssetReader implements PortraitAssetReader {
 }
 
 type ProviderEvent = Omit<EditTraceEvent, "eventId" | "taskId" | "sequence">;
+
+type TrustedProviderCandidate = Readonly<{
+  candidateAssetId: string;
+  watermarkedPreviewUrl: string;
+  receipts: readonly ProviderEvent[];
+}>;
 
 const fidelityChecks = new Set<FidelityCheck>([
   "FACE_COUNT",
@@ -251,13 +258,15 @@ export class TaskService {
     await this.repository.save(task);
 
     for (const attempt of [1, 2] as const) {
-      let candidate: ProviderCandidate;
+      let candidate: TrustedProviderCandidate;
       try {
-        candidate = await this.provider.runPreview(
-          structuredClone(task.input),
-          attempt
+        candidate = this.snapshotProviderCandidate(
+          await this.provider.runPreview(
+            structuredClone(task.input),
+            attempt
+          ),
+          task.input
         );
-        this.assertPermittedProviderCandidate(candidate, task.input);
         const receipts = await this.sanitizeProviderEventBatch(task, candidate.receipts);
         for (const receipt of receipts) {
           await this.appendSanitized(task, receipt);
@@ -366,25 +375,55 @@ export class TaskService {
     return this.repository.eventsAfter(userId, taskId, afterSequence);
   }
 
-  private assertPermittedProviderCandidate(
-    result: ProviderCandidate,
+  private snapshotProviderCandidate(
+    result: unknown,
     input: CreateTaskInput
-  ): void {
+  ): TrustedProviderCandidate {
     if (
       !result ||
       typeof result !== "object" ||
       Array.isArray(result) ||
+      isProxy(result) ||
       !this.hasExactOwnKeys(result, [
         "candidateAssetId",
         "watermarkedPreviewUrl",
         "receipts"
-      ]) ||
-      typeof result.candidateAssetId !== "string" ||
-      result.candidateAssetId.length === 0 ||
-      typeof result.watermarkedPreviewUrl !== "string" ||
-      result.watermarkedPreviewUrl.length === 0 ||
-      !Array.isArray(result.receipts) ||
-      result.receipts.length !== 3 ||
+      ])
+    ) {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    const candidateAssetIdDescriptor = Reflect.getOwnPropertyDescriptor(
+      result,
+      "candidateAssetId"
+    );
+    const watermarkedPreviewUrlDescriptor = Reflect.getOwnPropertyDescriptor(
+      result,
+      "watermarkedPreviewUrl"
+    );
+    const receiptsDescriptor = Reflect.getOwnPropertyDescriptor(result, "receipts");
+    if (
+      !candidateAssetIdDescriptor ||
+      !("value" in candidateAssetIdDescriptor) ||
+      !watermarkedPreviewUrlDescriptor ||
+      !("value" in watermarkedPreviewUrlDescriptor) ||
+      !receiptsDescriptor ||
+      !("value" in receiptsDescriptor)
+    ) {
+      throw new Error("INVALID_PROVIDER_RESULT");
+    }
+
+    const candidateAssetId = candidateAssetIdDescriptor.value as unknown;
+    const watermarkedPreviewUrl = watermarkedPreviewUrlDescriptor.value as unknown;
+    const receipts = receiptsDescriptor.value as unknown;
+    if (
+      typeof candidateAssetId !== "string" ||
+      candidateAssetId.length === 0 ||
+      typeof watermarkedPreviewUrl !== "string" ||
+      watermarkedPreviewUrl.length === 0 ||
+      !Array.isArray(receipts) ||
+      isProxy(receipts) ||
+      receipts.length !== 3 ||
       input.tool !== "PORTRAIT_RETOUCH"
     ) {
       throw new Error("INVALID_PROVIDER_RESULT");
@@ -392,12 +431,13 @@ export class TaskService {
 
     if (this.usesStageADemoProfile) {
       const demoProfile = requireStageADemoProfile(input as PortraitTaskInput);
-      if (result.watermarkedPreviewUrl !== demoProfile.preview.url) {
+      if (watermarkedPreviewUrl !== demoProfile.preview.url) {
         throw new Error("INVALID_PROVIDER_RESULT");
       }
     }
 
-    for (const parameterEvent of result.receipts.filter(
+    const receiptSnapshot = Object.freeze([...receipts]) as readonly ProviderEvent[];
+    for (const parameterEvent of receiptSnapshot.filter(
       (event) => event.type === "PARAM_DIRECTION_APPLIED"
     )) {
       const parameterPayload = parameterEvent.payload as Record<string, unknown>;
@@ -406,6 +446,11 @@ export class TaskService {
       }
     }
 
+    return Object.freeze({
+      candidateAssetId,
+      watermarkedPreviewUrl,
+      receipts: receiptSnapshot
+    });
   }
 
   private hasExactOwnKeys(
@@ -545,7 +590,7 @@ export class TaskService {
 
   private async sanitizeProviderEventBatch(
     task: StoredTask,
-    events: ProviderEvent[]
+    events: readonly ProviderEvent[]
   ): Promise<EditTraceEvent[]> {
     const sanitized = events.map((event, index) => sanitizeProviderReceiptEvent({
       ...event,

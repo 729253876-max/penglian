@@ -494,6 +494,64 @@ describe("TaskService", () => {
     }
   );
 
+  it.each(["an accessor", "a Proxy"])(
+    "fails closed before reading provider candidate fields from %s",
+    async (candidateKind) => {
+      const safePreviewUrl = "https://provider.invalid/watermarked/safe.jpg";
+      const privatePreviewUrl = "https://private.invalid/original.jpg?token=secret";
+      const target = successfulProviderResult();
+      target.watermarkedPreviewUrl = safePreviewUrl;
+      let previewReads = 0;
+      const candidate = candidateKind === "an accessor"
+        ? (() => {
+            const accessorCandidate = {
+              candidateAssetId: target.candidateAssetId,
+              receipts: target.receipts
+            } as unknown as ProviderCandidate;
+            Object.defineProperty(accessorCandidate, "watermarkedPreviewUrl", {
+              enumerable: true,
+              configurable: true,
+              get() {
+                previewReads += 1;
+                return previewReads <= 3 ? safePreviewUrl : privatePreviewUrl;
+              }
+            });
+            return accessorCandidate;
+          })()
+        : new Proxy(target, {
+            get(proxyTarget, property, receiver) {
+              if (property === "watermarkedPreviewUrl") {
+                previewReads += 1;
+                return previewReads <= 3 ? safePreviewUrl : privatePreviewUrl;
+              }
+              return Reflect.get(proxyTarget, property, receiver);
+            }
+          });
+      const service = new TaskService(
+        new InMemoryTaskRepository(),
+        new FixedResultImageProvider(candidate),
+        new FixedPortraitAssetReader(approvedAsset),
+        undefined,
+        undefined,
+        undefined,
+        passingGate()
+      );
+      const created = await service.create("user-1", approvedPortraitInput);
+
+      const finished = await service.confirmAndRunPreview("user-1", created.taskId);
+      const events = await service.getEvents("user-1", created.taskId, 0);
+
+      expect(previewReads).toBe(0);
+      expect(finished).toMatchObject({
+        status: "FAILED",
+        failureCode: "PREVIEW_PROVIDER_FAILED",
+        noCharge: true
+      });
+      expect(finished.previewUrl).toBeUndefined();
+      expect(events.some((event) => event.type === "PREVIEW_READY")).toBe(false);
+    }
+  );
+
   it("publishes only the second candidate after the first is rejected", async () => {
     class AttemptCandidateProvider implements ImageProvider {
       public async runPreview(_input: CreateTaskInput, attempt: 1 | 2): Promise<ProviderCandidate> {
