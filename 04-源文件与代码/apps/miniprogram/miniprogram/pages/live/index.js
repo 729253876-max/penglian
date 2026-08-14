@@ -29,6 +29,44 @@ function renderEvent(event) {
 function validSequence(events, taskId) {
     return events.every((event, index) => event.taskId === taskId && event.sequence === index + 1);
 }
+function sameJsonValue(left, right) {
+    if (Object.is(left, right))
+        return true;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        return Array.isArray(left) && Array.isArray(right) &&
+            left.length === right.length &&
+            left.every((item, index) => sameJsonValue(item, right[index]));
+    }
+    if (typeof left !== "object" || left === null ||
+        typeof right !== "object" || right === null) {
+        return false;
+    }
+    const leftRecord = left;
+    const rightRecord = right;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length &&
+        leftKeys.every((key, index) => key === rightKeys[index] && sameJsonValue(leftRecord[key], rightRecord[key]));
+}
+function sameEvent(left, right) {
+    return left.eventId === right.eventId &&
+        left.taskId === right.taskId &&
+        left.sequence === right.sequence &&
+        left.type === right.type &&
+        left.phase === right.phase &&
+        left.occurredAt === right.occurredAt &&
+        left.visibility === right.visibility &&
+        left.evidenceSource === right.evidenceSource &&
+        left.copyKey === right.copyKey &&
+        sameJsonValue(left.payload, right.payload);
+}
+function preservesAcceptedPrefix(accepted, incoming) {
+    return incoming.length >= accepted.length &&
+        accepted.every((event, index) => {
+            const candidate = incoming[index];
+            return candidate !== undefined && sameEvent(event, candidate);
+        });
+}
 function eventFailureCode(event) {
     if (event.type !== "TASK_FAILED" || !("code" in event.payload)) {
         return undefined;
@@ -227,9 +265,38 @@ Page({
         if (!runtime) {
             return false;
         }
+        if (fullJournal && !preservesAcceptedPrefix(this.data.allEvents, incoming)) {
+            return false;
+        }
         const candidate = fullJournal ? incoming : [...this.data.allEvents, ...incoming];
         if (!validSequence(candidate, this.data.taskId) || nextSequence !== candidate.length) {
             return false;
+        }
+        if (fullJournal) {
+            if (runtime.revealTimer) {
+                clearTimeout(runtime.revealTimer);
+                runtime.revealTimer = undefined;
+            }
+            runtime.pending = [];
+            const allEvents = [...incoming];
+            const revealAll = revealImmediately || this.data.reduceMotion;
+            const visibleCount = revealAll
+                ? allEvents.length
+                : Math.min(this.data.visibleEvents.length, allEvents.length);
+            const visibleEvents = allEvents.slice(0, visibleCount).map(renderEvent);
+            runtime.pending = allEvents.slice(visibleCount).map(renderEvent);
+            this.setData({
+                allEvents,
+                visibleEvents,
+                traceSummary: summarizeTrace(allEvents),
+                latestEvent: allEvents.length > 0
+                    ? renderEvent(allEvents[allEvents.length - 1])
+                    : undefined,
+                lastSequence: nextSequence
+            });
+            if (!revealAll)
+                this.revealNext();
+            return true;
         }
         const allEvents = fullJournal ? [...incoming] : mergeEvents(this.data.allEvents, incoming);
         this.setData({

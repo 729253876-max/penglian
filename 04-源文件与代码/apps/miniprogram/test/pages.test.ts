@@ -781,6 +781,68 @@ describe("live page", () => {
     config.onUnload.call(page);
   });
 
+  it("rejects a full refetch that changes an already visible prefix event id", async () => {
+    vi.useFakeTimers();
+    const taskRequest = Promise.withResolvers<never>();
+    api.getTask.mockReturnValueOnce(taskRequest.promise);
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { taskId: "task-1" });
+    const accepted = successfulJournal()[0]!;
+    expect(config.acceptEvents.call(page, [accepted], 1, true)).toBe(true);
+    expect(page.data.visibleEvents.map((item: EditTraceEvent) => item.eventId)).toEqual([
+      accepted.eventId
+    ]);
+
+    const rewritten = { ...accepted, eventId: "rewritten-event-1" };
+    const fullAccepted = config.acceptEvents.call(page, [rewritten], 1, false, true);
+    expect(fullAccepted).toBe(false);
+    if (!fullAccepted) config.stopForInvalidJournal.call(page);
+    await vi.runAllTimersAsync();
+
+    expect(page.data.allEvents).toEqual([accepted]);
+    expect(page.data.visibleEvents.map((item: EditTraceEvent) => item.eventId)).toEqual([
+      accepted.eventId
+    ]);
+    expect(page.data.error).toBe("修复记录暂时不完整，请稍后返回重试。");
+  });
+
+  it("rejects a full refetch that rewrites a pending event payload under the same id", async () => {
+    vi.useFakeTimers();
+    const taskRequest = Promise.withResolvers<never>();
+    api.getTask.mockReturnValueOnce(taskRequest.promise);
+    const config = await loadPage("../miniprogram/pages/live/index");
+    const page = pageInstance(config);
+    config.onLoad.call(page, { taskId: "task-1" });
+    const acceptedPrefix = successfulJournal().slice(0, 7);
+    expect(config.acceptEvents.call(page, acceptedPrefix, 7, false)).toBe(true);
+    expect(page.data.visibleEvents).toEqual([]);
+
+    const rewrittenPrefix = structuredClone(acceptedPrefix);
+    const rewrittenFinding = rewrittenPrefix[2];
+    if (!rewrittenFinding || rewrittenFinding.type !== "DIAGNOSIS_FINDING") {
+      throw new Error("expected diagnosis finding fixture");
+    }
+    rewrittenFinding.payload.finding = "LIGHT_BLUR";
+    const fullAccepted = config.acceptEvents.call(
+      page,
+      rewrittenPrefix,
+      rewrittenPrefix.length,
+      false,
+      true
+    );
+    expect(fullAccepted).toBe(false);
+    if (!fullAccepted) config.stopForInvalidJournal.call(page);
+    await vi.runAllTimersAsync();
+
+    expect(page.data.allEvents[2]).toMatchObject({
+      eventId: acceptedPrefix[2]!.eventId,
+      payload: { finding: "LIGHT_NOISE" }
+    });
+    expect(page.data.visibleEvents).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("handles preview-ready after recovering a parser-rejected incremental page", async () => {
     vi.useFakeTimers();
     api.getTask.mockImplementation(async () => api.getTask.mock.calls.length === 1
