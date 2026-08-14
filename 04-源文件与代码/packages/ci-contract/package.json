@@ -1,0 +1,9 @@
+{
+  "name": "@photo-ai/ci-contract",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}
