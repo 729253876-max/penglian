@@ -1,0 +1,43 @@
+name: PR Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@7c2c68d20d402ed6a201ada70a81341941093140
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: 04-源文件与代码/package-lock.json
+      - run: npm.cmd ci --ignore-scripts
+        working-directory: 04-源文件与代码
+      - name: Report non-accepted environments
+        shell: pwsh
+        run: |
+          Write-Host 'MySQL integration: NOT ACCEPTED (MYSQL_INTEGRATION_URL is intentionally absent).'
+          Write-Host 'Object storage/COS: NOT ACCEPTED (credentials are intentionally absent).'
+        working-directory: 04-源文件与代码
+      - run: npm.cmd run typecheck
+        working-directory: 04-源文件与代码
+      - run: npm.cmd test -- --run
+        working-directory: 04-源文件与代码
+      - run: npm.cmd run verify:miniprogram-runtime
+        working-directory: 04-源文件与代码
+      - run: npm.cmd run build:wechat -w @photo-ai/miniprogram
+        working-directory: 04-源文件与代码
+      - run: git diff --check origin/master...HEAD
+        working-directory: .

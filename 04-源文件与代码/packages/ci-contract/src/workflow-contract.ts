@@ -7,7 +7,9 @@ export type WorkflowContractCode =
   | "WRONG_RUNNER"
   | "WRONG_NODE"
   | "WRONG_CACHE_PATH"
+  | "WRONG_CHECKOUT"
   | "WRONG_WORKDIR"
+  | "FORBIDDEN_INSTALL_SCRIPT"
   | "MISSING_GATE"
   | "GATE_ORDER"
   | "FILTERED_TESTS"
@@ -20,12 +22,12 @@ export interface WorkflowContractError {
 }
 
 const REQUIRED_RUNS = [
-  "npm.cmd ci",
+  "npm.cmd ci --ignore-scripts",
   "npm.cmd run typecheck",
   "npm.cmd test -- --run",
   "npm.cmd run verify:miniprogram-runtime",
   "npm.cmd run build:wechat -w @photo-ai/miniprogram",
-  "git diff --check"
+  "git diff --check origin/master...HEAD"
 ] as const;
 
 const ALLOWED_ACTIONS = new Set([
@@ -91,6 +93,17 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
     "WRONG_CACHE_PATH",
     "the project lockfile must key npm cache"
   );
+  add(
+    errors,
+    !text.includes(
+      "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n" +
+        "        with:\n" +
+        "          fetch-depth: 0\n" +
+        "          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+    ),
+    "WRONG_CHECKOUT",
+    "checkout must use the PR head with complete history"
+  );
 
   const uses = [...text.matchAll(/^\s+-\s+uses:\s*(\S+)\s*$/gm)].map(
     (match) => match[1] ?? ""
@@ -134,10 +147,18 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
     "FILTERED_TESTS",
     "Vitest must run without file or test filters"
   );
+  add(
+    errors,
+    runs.includes("npm.cmd ci"),
+    "FORBIDDEN_INSTALL_SCRIPT",
+    "npm ci must disable dependency install scripts"
+  );
 
   for (const command of REQUIRED_RUNS) {
     const expectedDirectory =
-      command === "git diff --check" ? "." : "04-源文件与代码";
+      command === "git diff --check origin/master...HEAD"
+        ? "."
+        : "04-源文件与代码";
     const commandPattern = escapeRegex(command);
     const directoryPattern = escapeRegex(expectedDirectory);
     add(
