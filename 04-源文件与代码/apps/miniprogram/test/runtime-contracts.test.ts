@@ -94,4 +94,45 @@ describe("mini-program runtime contracts", () => {
     expect(() => parseTaskSnapshot({ ...snapshot, extra: true }))
       .toThrow("API_RESPONSE_INVALID");
   });
+
+  it.each([
+    ["SUCCEEDED without preview", { status: "SUCCEEDED" }],
+    ["SUCCEEDED with failureCode", {
+      status: "SUCCEEDED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      failureCode: "FIDELITY_GATE_FAILED"
+    }],
+    ["SUCCEEDED with noCharge", {
+      status: "SUCCEEDED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      noCharge: true
+    }],
+    ["FAILED with preview", {
+      status: "FAILED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    }],
+    ["FAILED without failureCode", { status: "FAILED", noCharge: true }],
+    ["FAILED without noCharge", {
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED"
+    }],
+    ["PROCESSING with preview", {
+      status: "PROCESSING",
+      previewUrl: "https://example.invalid/watermarked.jpg"
+    }],
+    ["PROCESSING with failureCode", {
+      status: "PROCESSING",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    }],
+    ["PROCESSING with noCharge", { status: "PROCESSING", noCharge: true }]
+  ])("rejects the contradictory snapshot %s", (_name, terminalFields) => {
+    expect(() => parseTaskSnapshot({
+      taskId: "task-1",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 13,
+      ...terminalFields
+    })).toThrow("API_RESPONSE_INVALID");
+  });
 });

@@ -55,6 +55,69 @@ function qualityPassed(eventId: string, sequence: number): EditTraceEvent {
   } as EditTraceEvent;
 }
 
+function truthfulEvent(
+  taskId: string,
+  sequence: number,
+  type: EditTraceEvent["type"],
+  phase: EditTraceEvent["phase"],
+  evidenceSource: EditTraceEvent["evidenceSource"],
+  copyKey: EditTraceEvent["copyKey"],
+  payload: EditTraceEvent["payload"]
+): EditTraceEvent {
+  return {
+    eventId: `${taskId}-event-${sequence}`,
+    taskId,
+    sequence,
+    type,
+    phase,
+    occurredAt: "2026-07-24T00:00:00.000Z",
+    visibility: "PREVIEW",
+    evidenceSource,
+    copyKey,
+    payload
+  } as EditTraceEvent;
+}
+
+function successfulJournal(taskId = "task-1"): EditTraceEvent[] {
+  return [
+    truthfulEvent(taskId, 1, "ASSET_APPROVED", "UPLOAD", "SYSTEM_CHECK", "upload.asset.approved", { metadataRemoved: true }),
+    truthfulEvent(taskId, 2, "DIAGNOSIS_STARTED", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.diagnosis.started", {}),
+    truthfulEvent(taskId, 3, "DIAGNOSIS_FINDING", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.diagnosis.light", { finding: "LIGHT_NOISE" }),
+    truthfulEvent(taskId, 4, "PROTECTION_RECORDED", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.protection.recorded", { protections: ["IDENTITY"] }),
+    truthfulEvent(taskId, 5, "PLAN_READY", "PLAN", "SYSTEM_CHECK", "portrait.plan.natural", { direction: "NATURAL_RESCUE" }),
+    truthfulEvent(taskId, 6, "PLAN_READY", "PLAN", "SYSTEM_CHECK", "portrait.plan.clear", { direction: "CLEAR_RESCUE" }),
+    truthfulEvent(taskId, 7, "PLAN_SELECTED", "PLAN", "USER_SELECTION", "portrait.plan.selected", { direction: "NATURAL_RESCUE" }),
+    truthfulEvent(taskId, 8, "STAGE_STARTED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+    truthfulEvent(taskId, 9, "PARAM_DIRECTION_APPLIED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.parameter.direction", { direction: "NATURAL_RESCUE", level: "MODERATE" }),
+    truthfulEvent(taskId, 10, "STAGE_COMPLETED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+    truthfulEvent(taskId, 11, "QUALITY_CHECK_STARTED", "QUALITY", "QUALITY_GATE", "quality.started", {}),
+    truthfulEvent(taskId, 12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", { checks: ["IDENTITY"] }),
+    truthfulEvent(taskId, 13, "PREVIEW_READY", "DELIVERY", "QUALITY_GATE", "preview.ready", { watermarked: true, downloadable: false })
+  ];
+}
+
+function providerFailureJournal(taskId = "task-1"): EditTraceEvent[] {
+  return [
+    ...successfulJournal(taskId).slice(0, 7),
+    truthfulEvent(taskId, 8, "TASK_FAILED", "DELIVERY", "SYSTEM_CHECK", "preview.provider.failed", {
+      code: "PREVIEW_PROVIDER_FAILED"
+    })
+  ];
+}
+
+function fidelityFailureJournal(taskId = "task-1"): EditTraceEvent[] {
+  return [
+    ...successfulJournal(taskId).slice(0, -2),
+    truthfulEvent(taskId, 12, "QUALITY_CHECK_FAILED", "QUALITY", "QUALITY_GATE", "quality.fidelity.failed", {
+      checks: ["IDENTITY", "ARTIFACTS"],
+      failedChecks: ["IDENTITY", "ARTIFACTS"]
+    }),
+    truthfulEvent(taskId, 13, "TASK_FAILED", "DELIVERY", "QUALITY_GATE", "preview.provider.failed", {
+      code: "FIDELITY_GATE_FAILED"
+    })
+  ];
+}
+
 function pageInstance(config: PageConfig) {
   const page = Object.assign({
     data: structuredClone(config.data ?? {}),
@@ -362,12 +425,12 @@ describe("live page", () => {
       taskId: "task-1",
       status: "SUCCEEDED",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 2,
+      lastSequence: 13,
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
     api.getEvents.mockResolvedValueOnce({
-      items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }],
-      nextSequence: 2
+      items: successfulJournal(),
+      nextSequence: 13
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -380,17 +443,21 @@ describe("live page", () => {
 
     expect(page.data.showAllEvents).toBe(false);
     expect(page.data.latestEvent).toMatchObject({
-      eventId: "ready",
+      eventId: "task-1-event-13",
       type: "PREVIEW_READY"
     });
     expect(page.data.traceSummary.map((item: { phase: string }) => item.phase)).toEqual([
+      "UPLOAD",
+      "DIAGNOSIS",
+      "PLAN",
+      "RETOUCH",
       "QUALITY",
       "DELIVERY"
     ]);
 
     config.toggleAllEvents.call(page);
     expect(page.data.showAllEvents).toBe(true);
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
   });
 
   it("shows an actionable error instead of starting a task without taskId", async () => {
@@ -408,24 +475,24 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "SUCCEEDED",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 2,
+      lastSequence: 13,
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
-    api.getEvents.mockResolvedValueOnce({ items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: successfulJournal(), nextSequence: 13 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
 
     config.onLoad.call(page, { taskId: "task-1" });
     await vi.runAllTimersAsync();
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
     expect(page.data.ready).toBe(true);
-    expect(page.data.lastSequence).toBe(2);
+    expect(page.data.lastSequence).toBe(13);
   });
 
   it("restores the saved reduced-motion preference and reveals a batch without delay", async () => {
@@ -435,21 +502,18 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 0
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "PROCESSING",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 2
+      lastSequence: 7
     });
-    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, previewUrl: "https://example.invalid/p.jpg" });
     api.getEvents.mockResolvedValueOnce({
-      items: [
-        qualityPassed("quality", 1),
-        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
-      ],
-      nextSequence: 2
+      items: successfulJournal(),
+      nextSequence: 13
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -461,7 +525,7 @@ describe("live page", () => {
     await Promise.resolve();
 
     expect(page.data.reduceMotion).toBe(true);
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
     expect(page.data.ready).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -472,21 +536,18 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 0
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "PROCESSING",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 2
+      lastSequence: 7
     });
-    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, previewUrl: "https://example.invalid/p.jpg" });
     api.getEvents.mockResolvedValueOnce({
-      items: [
-        qualityPassed("quality", 1),
-        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
-      ],
-      nextSequence: 2
+      items: successfulJournal(),
+      nextSequence: 13
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -496,11 +557,11 @@ describe("live page", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
 
     config.toggleReduceMotion.call(page, { detail: { value: true } });
 
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
     expect(page.data.ready).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
     expect(wx.setStorageSync).toHaveBeenCalledWith(
@@ -515,15 +576,12 @@ describe("live page", () => {
       taskId: "task-1",
       status: "SUCCEEDED",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 2,
+      lastSequence: 13,
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
     api.getEvents.mockResolvedValueOnce({
-      items: [
-        qualityPassed("quality", 1),
-        { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
-      ],
-      nextSequence: 2
+      items: successfulJournal(),
+      nextSequence: 13
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -536,7 +594,7 @@ describe("live page", () => {
 
     expect(api.getTask).toHaveBeenCalledWith("task-1");
     expect(api.runPreview).not.toHaveBeenCalled();
-    expect(page.data.visibleEvents).toHaveLength(2);
+    expect(page.data.visibleEvents).toHaveLength(13);
     expect(page.data.ready).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -547,23 +605,19 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "FAILED",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 4,
-      failureCode: "PREVIEW_PROVIDER_FAILED"
+      lastSequence: 8,
+      failureCode: "PREVIEW_PROVIDER_FAILED",
+      noCharge: true
     });
     api.getEvents.mockResolvedValue({
-      items: [
-        event("one", 1),
-        event("two", 2),
-        event("three", 3),
-        event("failed", 4, "TASK_FAILED")
-      ],
-      nextSequence: 4
+      items: providerFailureJournal(),
+      nextSequence: 8
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -598,17 +652,13 @@ describe("live page", () => {
       taskId: "task-1",
       status: "FAILED",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 4,
-      failureCode: "PREVIEW_PROVIDER_FAILED"
+      lastSequence: 8,
+      failureCode: "PREVIEW_PROVIDER_FAILED",
+      noCharge: true
     });
     api.getEvents.mockResolvedValueOnce({
-      items: [
-        event("one", 1),
-        event("two", 2),
-        event("three", 3),
-        event("failed", 4, "TASK_FAILED")
-      ],
-      nextSequence: 4
+      items: providerFailureJournal(),
+      nextSequence: 8
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -631,13 +681,13 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "PROCESSING",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.getEvents.mockResolvedValueOnce({ items: [event("one", 1)], nextSequence: 1 });
     const config = await loadPage("../miniprogram/pages/live/index");
@@ -658,17 +708,17 @@ describe("live page", () => {
         taskId: "task-a",
         status: "AWAITING_CONFIRMATION",
         tool: "PORTRAIT_RETOUCH",
-        lastSequence: 3
+        lastSequence: 7
       })
       .mockResolvedValueOnce({
         taskId: "task-b",
         status: "AWAITING_CONFIRMATION",
         tool: "PORTRAIT_RETOUCH",
-        lastSequence: 3
+        lastSequence: 7
       })
-      .mockResolvedValueOnce({ taskId: "task-b", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+      .mockResolvedValueOnce({ taskId: "task-b", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, previewUrl: "https://example.invalid/p.jpg" });
     api.runPreview.mockReturnValueOnce(firstPreview.promise).mockResolvedValueOnce({ taskId: "task-b" });
-    api.getEvents.mockResolvedValueOnce({ items: [{ ...qualityPassed("b-quality", 1), taskId: "task-b" }, { ...event("b-ready", 2, "PREVIEW_READY"), taskId: "task-b", evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: successfulJournal("task-b"), nextSequence: 13 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const first = pageInstance(config);
     const second = pageInstance(config);
@@ -683,7 +733,7 @@ describe("live page", () => {
 
     expect(api.getEvents).toHaveBeenCalledTimes(1);
     expect(first.data.visibleEvents).toEqual([]);
-    expect(second.data.visibleEvents).toHaveLength(2);
+    expect(second.data.visibleEvents).toHaveLength(13);
     expect(second.data.ready).toBe(true);
   });
 
@@ -694,13 +744,13 @@ describe("live page", () => {
       taskId: "task-1",
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.runPreview.mockResolvedValueOnce({
       taskId: "task-1",
       status: "PROCESSING",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 7
     });
     api.getEvents.mockResolvedValueOnce({ items: [], nextSequence: 0 }).mockReturnValueOnce(retryRequest.promise);
     const config = await loadPage("../miniprogram/pages/live/index");
@@ -713,8 +763,8 @@ describe("live page", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     expect(api.getEvents).toHaveBeenCalledTimes(2);
-    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
-    retryRequest.resolve({ items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 });
+    api.getTask.mockResolvedValueOnce({ taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, previewUrl: "https://example.invalid/p.jpg" });
+    retryRequest.resolve({ items: successfulJournal(), nextSequence: 13 });
     await vi.runAllTimersAsync();
     expect(page.data.ready).toBe(true);
   });
@@ -735,10 +785,10 @@ describe("live page", () => {
     vi.useFakeTimers();
     api.getTask.mockImplementation(async () => api.getTask.mock.calls.length === 1
       ? { taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 }
-      : { taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" });
+      : { taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, previewUrl: "https://example.invalid/p.jpg" });
     api.getEvents.mockImplementation(async () => {
       if (api.getEvents.mock.calls.length === 1) throw new Error("API_RESPONSE_INVALID");
-      return { items: [qualityPassed("quality", 1), { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }], nextSequence: 2 };
+      return { items: successfulJournal(), nextSequence: 13 };
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -755,13 +805,13 @@ describe("live page", () => {
     vi.useFakeTimers();
     api.getTask.mockImplementation(async () => api.getTask.mock.calls.length === 1
       ? { taskId: "task-1", status: "PROCESSING", tool: "PORTRAIT_RETOUCH", lastSequence: 0 }
-      : { taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, failureCode: "FIDELITY_GATE_FAILED", noCharge: true });
+      : { taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 13, failureCode: "FIDELITY_GATE_FAILED", noCharge: true });
     api.getEvents.mockImplementation(async () => {
       if (api.getEvents.mock.calls.length === 1) throw new Error("API_RESPONSE_INVALID");
-      return { items: [
-        { ...event("quality-failed", 1), type: "QUALITY_CHECK_FAILED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.failed", payload: { checks: ["IDENTITY"], failedChecks: ["IDENTITY"] } },
-        { ...event("failed", 2, "TASK_FAILED"), evidenceSource: "QUALITY_GATE", payload: { code: "FIDELITY_GATE_FAILED" } }
-      ], nextSequence: 2 };
+      const items = fidelityFailureJournal().map((item) => item.type === "QUALITY_CHECK_FAILED"
+        ? { ...item, payload: { checks: ["IDENTITY"], failedChecks: ["IDENTITY"] } } as EditTraceEvent
+        : item);
+      return { items, nextSequence: 13 };
     });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
@@ -861,13 +911,10 @@ describe("live page", () => {
 
   it("shows actual fidelity failures and no-charge outcome from the terminal snapshot", async () => {
     api.getTask.mockResolvedValueOnce({
-      taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      taskId: "task-1", status: "FAILED", tool: "PORTRAIT_RETOUCH", lastSequence: 13,
       failureCode: "FIDELITY_GATE_FAILED", noCharge: true
     });
-    api.getEvents.mockResolvedValueOnce({ items: [
-      { ...event("quality-failed", 1), type: "QUALITY_CHECK_FAILED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.failed", payload: { checks: ["IDENTITY", "ARTIFACTS"], failedChecks: ["IDENTITY", "ARTIFACTS"] } },
-      { ...event("failed", 2, "TASK_FAILED"), evidenceSource: "QUALITY_GATE", payload: { code: "FIDELITY_GATE_FAILED" } }
-    ], nextSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: fidelityFailureJournal(), nextSequence: 13 });
     const config = await loadPage("../miniprogram/pages/live/index");
     const page = pageInstance(config);
 
@@ -883,13 +930,10 @@ describe("live page", () => {
 describe("preview page", () => {
   it("shows a real preview only for a continuous succeeded quality-gated task", async () => {
     api.getTask.mockResolvedValueOnce({
-      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2,
+      taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 13,
       previewUrl: "https://example.invalid/watermarked.jpg"
     });
-    api.getEvents.mockResolvedValueOnce({ items: [
-      { ...event("quality", 1), type: "QUALITY_CHECK_PASSED", phase: "QUALITY", evidenceSource: "QUALITY_GATE", copyKey: "quality.fidelity.passed", payload: { checks: ["IDENTITY"] } },
-      { ...event("ready", 2, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }
-    ], nextSequence: 2 });
+    api.getEvents.mockResolvedValueOnce({ items: successfulJournal(), nextSequence: 13 });
     const config = await loadPage("../miniprogram/pages/preview/index");
     const page = pageInstance(config);
 
@@ -899,7 +943,7 @@ describe("preview page", () => {
     expect(page.data.canPreview).toBe(true);
     expect(page.data.previewUrl).toBe("https://example.invalid/watermarked.jpg");
     expect(page.data.originalPlaceholder).toBe("/assets/demo-before.svg");
-    expect(page.data.trace).toHaveLength(2);
+    expect(page.data.trace).toHaveLength(13);
   });
 
   it("returns to live when quality evidence is incomplete", async () => {

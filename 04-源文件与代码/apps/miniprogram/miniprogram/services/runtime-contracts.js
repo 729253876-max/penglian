@@ -137,6 +137,20 @@ export function parseTaskSnapshot(value) {
         (value.diagnosis !== undefined && !isDiagnosis(value.diagnosis))) {
         throw new Error("API_RESPONSE_INVALID");
     }
+    const outcomeIsValid = value.status === "SUCCEEDED"
+        ? value.previewUrl !== undefined &&
+            value.failureCode === undefined &&
+            value.noCharge === undefined
+        : value.status === "FAILED"
+            ? value.previewUrl === undefined &&
+                value.failureCode !== undefined &&
+                value.noCharge === true
+            : value.previewUrl === undefined &&
+                value.failureCode === undefined &&
+                value.noCharge === undefined;
+    if (!outcomeIsValid) {
+        throw new Error("API_RESPONSE_INVALID");
+    }
     return value;
 }
 function isDiagnosis(value) {
@@ -173,4 +187,116 @@ export function parseEditTraceEvent(value) {
         throw new Error("API_RESPONSE_INVALID");
     }
     return value;
+}
+function journalState() {
+    return {
+        count: 0,
+        lastSequence: 0,
+        terminal: false,
+        diagnosisStarted: false,
+        protectionRecorded: false,
+        naturalPlanReady: false,
+        clearPlanReady: false,
+        stageStarted: false,
+        stageCompleted: false,
+        qualityStarted: false,
+        retryCount: 0
+    };
+}
+function requireJournal(condition) {
+    if (!condition)
+        throw new Error("API_RESPONSE_INVALID");
+}
+function advanceJournal(state, event) {
+    requireJournal(event.sequence === state.lastSequence + 1);
+    requireJournal(state.taskId === undefined || event.taskId === state.taskId);
+    requireJournal(!state.terminal);
+    requireJournal(state.count === 0
+        ? event.type === "ASSET_APPROVED"
+        : event.type !== "ASSET_APPROVED");
+    switch (event.type) {
+        case "ASSET_APPROVED":
+            break;
+        case "DIAGNOSIS_STARTED":
+            requireJournal(!state.diagnosisStarted && state.count === 1);
+            state.diagnosisStarted = true;
+            break;
+        case "DIAGNOSIS_FINDING":
+            requireJournal(state.diagnosisStarted && !state.protectionRecorded);
+            break;
+        case "PROTECTION_RECORDED":
+            requireJournal(state.diagnosisStarted && !state.protectionRecorded);
+            state.protectionRecorded = true;
+            break;
+        case "PLAN_READY":
+            requireJournal(state.protectionRecorded && !state.selectedDirection);
+            if (event.payload.direction === "NATURAL_RESCUE") {
+                requireJournal(!state.naturalPlanReady);
+                state.naturalPlanReady = true;
+            }
+            else {
+                requireJournal(!state.clearPlanReady);
+                state.clearPlanReady = true;
+            }
+            break;
+        case "PLAN_SELECTED":
+            requireJournal(!state.selectedDirection && state.naturalPlanReady && state.clearPlanReady);
+            state.selectedDirection = event.payload.direction;
+            break;
+        case "STAGE_STARTED":
+            requireJournal(Boolean(state.selectedDirection) && !state.stageStarted && !state.qualityStarted);
+            state.stageStarted = true;
+            break;
+        case "PARAM_DIRECTION_APPLIED":
+            requireJournal(state.stageStarted && !state.stageCompleted);
+            requireJournal(state.selectedDirection === event.payload.direction);
+            break;
+        case "STAGE_COMPLETED":
+            requireJournal(state.stageStarted && !state.stageCompleted);
+            state.stageCompleted = true;
+            break;
+        case "QUALITY_CHECK_STARTED":
+            requireJournal(state.stageCompleted && !state.qualityStarted);
+            state.qualityStarted = true;
+            break;
+        case "QUALITY_CHECK_PASSED":
+        case "QUALITY_CHECK_FAILED":
+            requireJournal(state.qualityStarted && !state.qualityResult);
+            state.qualityResult = event.type === "QUALITY_CHECK_PASSED" ? "PASSED" : "FAILED";
+            break;
+        case "RETRY_STARTED":
+            requireJournal(state.retryCount < 1 &&
+                event.payload.attempt === 2 &&
+                state.qualityResult === "FAILED");
+            state.retryCount += 1;
+            state.stageStarted = false;
+            state.stageCompleted = false;
+            state.qualityStarted = false;
+            delete state.qualityResult;
+            break;
+        case "PREVIEW_READY":
+            requireJournal(state.qualityResult === "PASSED");
+            state.terminal = true;
+            break;
+        case "TASK_FAILED":
+            requireJournal(Boolean(state.selectedDirection));
+            if (event.payload.code === "FIDELITY_GATE_FAILED") {
+                requireJournal(state.qualityStarted);
+            }
+            state.terminal = true;
+            break;
+    }
+    state.count += 1;
+    state.lastSequence = event.sequence;
+    state.taskId ??= event.taskId;
+}
+export function validateEditTraceJournal(value) {
+    const state = journalState();
+    const events = [];
+    for (const item of value) {
+        const event = parseEditTraceEvent(item);
+        advanceJournal(state, event);
+        events.push(event);
+    }
+    return events;
 }

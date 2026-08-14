@@ -20,6 +20,59 @@ function event(
   } as EditTraceEvent;
 }
 
+function truthfulEvent(
+  sequence: number,
+  type: EditTraceEvent["type"],
+  phase: EditTraceEvent["phase"],
+  evidenceSource: EditTraceEvent["evidenceSource"],
+  copyKey: EditTraceEvent["copyKey"],
+  payload: EditTraceEvent["payload"]
+): EditTraceEvent {
+  return {
+    eventId: `truthful-${sequence}`,
+    taskId: "task-1",
+    sequence,
+    type,
+    phase,
+    occurredAt: "2026-08-12T00:00:00.000Z",
+    visibility: "PREVIEW",
+    evidenceSource,
+    copyKey,
+    payload
+  } as EditTraceEvent;
+}
+
+function successfulJournal(): EditTraceEvent[] {
+  return [
+    truthfulEvent(1, "ASSET_APPROVED", "UPLOAD", "SYSTEM_CHECK", "upload.asset.approved", { metadataRemoved: true }),
+    truthfulEvent(2, "DIAGNOSIS_STARTED", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.diagnosis.started", {}),
+    truthfulEvent(3, "DIAGNOSIS_FINDING", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.diagnosis.light", { finding: "LIGHT_NOISE" }),
+    truthfulEvent(4, "PROTECTION_RECORDED", "DIAGNOSIS", "SYSTEM_CHECK", "portrait.protection.recorded", { protections: ["IDENTITY"] }),
+    truthfulEvent(5, "PLAN_READY", "PLAN", "SYSTEM_CHECK", "portrait.plan.natural", { direction: "NATURAL_RESCUE" }),
+    truthfulEvent(6, "PLAN_READY", "PLAN", "SYSTEM_CHECK", "portrait.plan.clear", { direction: "CLEAR_RESCUE" }),
+    truthfulEvent(7, "PLAN_SELECTED", "PLAN", "USER_SELECTION", "portrait.plan.selected", { direction: "NATURAL_RESCUE" }),
+    truthfulEvent(8, "STAGE_STARTED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.started", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+    truthfulEvent(9, "PARAM_DIRECTION_APPLIED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.parameter.direction", { direction: "NATURAL_RESCUE", level: "MODERATE" }),
+    truthfulEvent(10, "STAGE_COMPLETED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
+    truthfulEvent(11, "QUALITY_CHECK_STARTED", "QUALITY", "QUALITY_GATE", "quality.started", {}),
+    truthfulEvent(12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", { checks: ["IDENTITY"] }),
+    truthfulEvent(13, "PREVIEW_READY", "DELIVERY", "QUALITY_GATE", "preview.ready", { watermarked: true, downloadable: false })
+  ];
+}
+
+function fidelityFailureJournal(): EditTraceEvent[] {
+  return [
+    ...successfulJournal().slice(0, -2),
+    truthfulEvent(12, "QUALITY_CHECK_FAILED", "QUALITY", "QUALITY_GATE", "quality.fidelity.failed", {
+      checks: ["IDENTITY", "ARTIFACTS"],
+      failedChecks: ["IDENTITY", "ARTIFACTS"]
+    }),
+    truthfulEvent(13, "TASK_FAILED", "DELIVERY", "QUALITY_GATE", "preview.provider.failed", {
+      code: "FIDELITY_GATE_FAILED"
+    })
+  ];
+}
+
 describe("summarizeTrace", () => {
   it("summarizes only phases present in real server events", () => {
     const summary = summarizeTrace([
@@ -157,28 +210,65 @@ describe("presentTrace", () => {
 });
 
 describe("terminal evidence", () => {
-  const passed = (sequence: number) => ({ ...event("QUALITY", sequence, "QUALITY_CHECK_PASSED"), evidenceSource: "QUALITY_GATE" }) as EditTraceEvent;
-  const ready = (sequence: number) => ({ ...event("DELIVERY", sequence, "PREVIEW_READY"), evidenceSource: "QUALITY_GATE" }) as EditTraceEvent;
-  const snapshot = { taskId: "task-1", status: "SUCCEEDED", tool: "PORTRAIT_RETOUCH", lastSequence: 2, previewUrl: "https://example.invalid/p.jpg" } as const;
+  const snapshot = {
+    taskId: "task-1",
+    status: "SUCCEEDED",
+    tool: "PORTRAIT_RETOUCH",
+    lastSequence: 13,
+    previewUrl: "https://example.invalid/p.jpg"
+  } as const;
 
-  it("accepts only an aligned succeeded snapshot ending in adjacent project passed and ready evidence", () => {
-    expect(successEvidence("task-1", snapshot, [passed(1), ready(2)], 2)).toBe(true);
+  it("accepts an aligned succeeded snapshot only with the complete truthful journal", () => {
+    expect(successEvidence("task-1", snapshot, successfulJournal(), 13)).toBe(true);
   });
 
   it.each([
-    ["route mismatch", "other", snapshot, [passed(1), ready(2)], 2],
-    ["snapshot task mismatch", "task-1", { ...snapshot, taskId: "other" }, [passed(1), ready(2)], 2],
-    ["truncated snapshot", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), ready(2)], 2],
-    ["failed after passed", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), event("QUALITY", 2, "QUALITY_CHECK_FAILED"), ready(3)], 3],
-    ["extra after ready", "task-1", { ...snapshot, lastSequence: 3 }, [passed(1), ready(2), event("DELIVERY", 3, "TASK_FAILED")], 3]
-  ])("rejects %s", (_name, route, task, events, next) => {
-    expect(successEvidence(route as string, task as any, events as EditTraceEvent[], next as number)).toBe(false);
+    ["asset approval", new Set(["ASSET_APPROVED"])],
+    ["diagnosis", new Set(["DIAGNOSIS_STARTED", "DIAGNOSIS_FINDING", "PROTECTION_RECORDED"])],
+    ["plan selection", new Set(["PLAN_SELECTED"])],
+    ["provider stage", new Set(["STAGE_STARTED", "PARAM_DIRECTION_APPLIED", "STAGE_COMPLETED"])],
+    ["quality start", new Set(["QUALITY_CHECK_STARTED"])]
+  ])("rejects a success journal missing %s", (_name, removedTypes) => {
+    const incomplete = successfulJournal()
+      .filter((item) => !removedTypes.has(item.type))
+      .map((item, index) => ({
+        ...item,
+        eventId: `incomplete-${index + 1}`,
+        sequence: index + 1
+      })) as EditTraceEvent[];
+    expect(successEvidence(
+      "task-1",
+      { ...snapshot, lastSequence: incomplete.length },
+      incomplete,
+      incomplete.length
+    )).toBe(false);
   });
 
-  it("uses the final TASK_FAILED code and nearest failed checks while rejecting snapshot conflicts", () => {
-    const failed = { ...event("QUALITY", 1, "QUALITY_CHECK_FAILED"), payload: { checks: ["IDENTITY", "ARTIFACTS"], failedChecks: ["IDENTITY", "ARTIFACTS"] } } as EditTraceEvent;
-    const terminal = { ...event("DELIVERY", 2, "TASK_FAILED"), payload: { code: "FIDELITY_GATE_FAILED" } } as EditTraceEvent;
-    expect(failureEvidence("task-1", { ...snapshot, status: "FAILED", failureCode: "FIDELITY_GATE_FAILED" } as any, [failed, terminal], 2)).toEqual({ code: "FIDELITY_GATE_FAILED", failedChecks: ["IDENTITY", "ARTIFACTS"] });
-    expect(failureEvidence("task-1", { ...snapshot, status: "FAILED", failureCode: "PREVIEW_PROVIDER_FAILED" } as any, [failed, terminal], 2)).toBeUndefined();
+  it("uses the final TASK_FAILED code and nearest failed checks from a complete failure journal", () => {
+    const failedSnapshot = {
+      taskId: "task-1",
+      status: "FAILED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 13,
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    } as const;
+    const journal = fidelityFailureJournal();
+    expect(failureEvidence("task-1", failedSnapshot, journal, 13)).toEqual({
+      code: "FIDELITY_GATE_FAILED",
+      failedChecks: ["IDENTITY", "ARTIFACTS"]
+    });
+    expect(failureEvidence(
+      "task-1",
+      { ...failedSnapshot, status: "PROCESSING", failureCode: undefined, noCharge: undefined } as any,
+      journal,
+      13
+    )).toBeUndefined();
+    expect(failureEvidence(
+      "task-1",
+      { ...failedSnapshot, failureCode: "PREVIEW_PROVIDER_FAILED" } as any,
+      journal,
+      13
+    )).toBeUndefined();
   });
 });
