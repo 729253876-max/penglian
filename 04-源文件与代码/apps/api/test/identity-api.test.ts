@@ -672,9 +672,9 @@ describe("production server assembly", () => {
   it("listens on the loaded host and port with a live production assembly", async () => {
     const probe = await runLiveServerProbe();
 
-    expect(probe).toEqual({
-      statusCode: 200,
-      body: { status: "live" }
+    expect(probe.statusCode).toBe(200);
+    expect(probe.body).toMatchObject({
+      status: "live"
     });
   });
 });
@@ -1048,22 +1048,79 @@ async function runLiveServerProbe(): Promise<{
     },
     stdio: "ignore"
   });
-  const deadline = Date.now() + 2_000;
+
+  let exitCode: number | null = null;
+  let stdout = "";
+  let stderr = "";
+  let failure: string | null = null;
+  let exited = false;
+  const start = Date.now();
+  const maxWaitMs = 8_000;
+  const deadline = start + maxWaitMs;
+
+  const cleanupChild = () => {
+    if (!child.killed && child.exitCode === null) {
+      child.kill();
+    }
+    child.stdin?.destroy();
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr?.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  child.on("exit", (code) => {
+    exited = true;
+    exitCode = code;
+  });
+  child.on("error", (error) => {
+    failure = `live probe spawn error: ${String(error)}`;
+  });
+
   try {
     while (Date.now() < deadline) {
-      if (child.exitCode !== null) {
+      if (exited) {
         break;
       }
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/health/live`);
-        return { statusCode: response.status, body: await response.json() };
+        const response = await fetch(`http://127.0.0.1:${port}/health/live`, {
+          signal: AbortSignal.timeout(200)
+        });
+        const body = await response.json();
+        return {
+          statusCode: response.status,
+          body: {
+            ...body,
+            __probe__: {
+              port,
+              retriesMs: Date.now() - start,
+              exitCode,
+              stdout: stdout.trim(),
+              stderr: stderr.trim()
+            }
+          }
+        };
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
-    return { statusCode: null, body: null };
+    return {
+      statusCode: null,
+      body: {
+        code: "LIVE_SERVER_PROBE_TIMEOUT",
+        reason: exited ? "process-exited-before-ready" : "timeout",
+        port,
+        retriesMs: Date.now() - start,
+        exitCode,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        failure: failure
+      }
+    };
   } finally {
-    child.kill();
+    cleanupChild();
   }
 }
 

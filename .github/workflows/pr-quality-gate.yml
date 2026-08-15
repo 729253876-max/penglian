@@ -20,9 +20,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@7c2c68d20d402ed6a201ada70a81341941093140
         with:
-          node-version: 24
+          node-version: 24.18.0
           cache: npm
           cache-dependency-path: 04-源文件与代码/package-lock.json
+      - name: Verify toolchain versions
+        shell: pwsh
+        run: |
+          if ($(node --version) -ne "v24.18.0") {
+            Write-Error "Expected Node.js v24.18.0, got $((node --version))"
+            exit 1
+          }
+          if ($(npm.cmd --version) -ne "11.16.0") {
+            Write-Error "Expected npm 11.16.0, got $((npm.cmd --version))"
+            exit 1
+          }
+        working-directory: 04-源文件与代码
       - run: npm.cmd ci --ignore-scripts
         working-directory: 04-源文件与代码
       - name: Report non-accepted environments

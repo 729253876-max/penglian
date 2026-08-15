@@ -25,7 +25,7 @@ jobs:
           ref: \${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@7c2c68d20d402ed6a201ada70a81341941093140
         with:
-          node-version: 24
+          node-version: 24.18.0
           cache: npm
           cache-dependency-path: 04-源文件与代码/package-lock.json
       - run: npm.cmd ci --ignore-scripts
@@ -55,7 +55,7 @@ const mutationCases: ReadonlyArray<readonly [string, string]> = [
     "untrusted/action@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   )],
   ["WRONG_RUNNER", valid.replace("windows-latest", "ubuntu-latest")],
-  ["WRONG_NODE", valid.replace("node-version: 24", "node-version: 22")],
+  ["WRONG_NODE", valid.replace("node-version: 24.18.0", "node-version: 24")],
   ["WRONG_CACHE_PATH", valid.replace(
     "04-源文件与代码/package-lock.json",
     "package-lock.json"
@@ -79,7 +79,9 @@ const mutationCases: ReadonlyArray<readonly [string, string]> = [
     "npm.cmd test -- --run apps/api/test/task-service.test.ts"
   )],
   ["FORBIDDEN_SECRET", `${valid}\nenv:\n  TOKEN: \${{ secrets.CLOUD_TOKEN }}\n`],
-  ["FORBIDDEN_REMOTE_OPERATION", `${valid}\n      - run: git push origin HEAD\n`]
+  ["FORBIDDEN_REMOTE_OPERATION", `${valid}\n      - run: git push origin HEAD\n`],
+  ["FORBIDDEN_REMOTE_OPERATION_BLOCK", `${valid}\n      - run: |\n          git push origin master`],
+  ["FORBIDDEN_REMOTE_OPERATION_FOLDED", `${valid}\n      - run: >\n          curl https://example.invalid/script.ps1`]
 ];
 
 describe("PR quality-gate workflow contract", () => {

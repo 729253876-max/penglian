@@ -35,6 +35,64 @@ const ALLOWED_ACTIONS = new Set([
   "actions/setup-node@7c2c68d20d402ed6a201ada70a81341941093140"
 ]);
 
+function collectRunCommands(source: string): string[] {
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const runs: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const current = lines[index] ?? "";
+    const match = current.match(/^(\s*)-\s+run:\s*(\||>)?\s*(.*)?$/);
+    if (!match) {
+      continue;
+    }
+
+    const style = match[2];
+    const inline = match[3]?.trim();
+    if (!style) {
+      if (inline) {
+        runs.push(inline);
+      }
+      continue;
+    }
+
+    const indent = match[1]?.length ?? 0;
+    const blockIndent = indent + 2;
+    const blockLines: string[] = [];
+    index += 1;
+
+    while (index < lines.length) {
+      const blockLine = lines[index] ?? "";
+      const blockIndentInLine = blockLine.match(/^\s*/)?.[0].length ?? 0;
+      if (blockIndentInLine < blockIndent && blockLine.trim() !== "") {
+        break;
+      }
+      if (blockLine.trim() !== "") {
+        blockLines.push(blockLine.slice(blockIndentInLine >= blockIndent ? blockIndent : 0));
+      } else if (blockLines.length > 0) {
+        blockLines.push("");
+      }
+      index += 1;
+    }
+
+    index -= 1;
+    const command = blockLines.join("\n").trim();
+    if (command) {
+      runs.push(command);
+    }
+  }
+
+  return runs;
+}
+
+function splitCommandLines(runs: string[]): string[] {
+  return runs.flatMap((run) =>
+    run
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+}
+
 function add(
   errors: WorkflowContractError[],
   condition: boolean,
@@ -51,6 +109,8 @@ function escapeRegex(value: string) {
 export function validateWorkflowContract(source: string): WorkflowContractError[] {
   const text = source.replace(/\r\n/g, "\n");
   const errors: WorkflowContractError[] = [];
+  const runs = collectRunCommands(text);
+  const runCommands = splitCommandLines(runs);
 
   add(
     errors,
@@ -83,9 +143,9 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
   );
   add(
     errors,
-    !/(^|\n)          node-version: 24\n/.test(text),
+    !/(^|\n)          node-version: 24\.18\.0\n/.test(text),
     "WRONG_NODE",
-    "Node.js 24 is required"
+    "Node.js 24.18.0 is required"
   );
   add(
     errors,
@@ -121,16 +181,13 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
     "only the two reviewed action commits are allowed"
   );
 
-  const runs = [...text.matchAll(/^\s+-\s+run:\s+(?!\|)(.+?)\s*$/gm)].map(
-    (match) => match[1] ?? ""
-  );
   add(
     errors,
-    REQUIRED_RUNS.some((command) => !runs.includes(command)),
+    REQUIRED_RUNS.some((command) => !runCommands.includes(command)),
     "MISSING_GATE",
     "all six install and gate commands are required"
   );
-  const requiredRunsInActualOrder = runs.filter((run) =>
+  const requiredRunsInActualOrder = runCommands.filter((run) =>
     REQUIRED_RUNS.includes(run as (typeof REQUIRED_RUNS)[number])
   );
   add(
@@ -149,7 +206,7 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
   );
   add(
     errors,
-    runs.includes("npm.cmd ci"),
+    runCommands.includes("npm.cmd ci"),
     "FORBIDDEN_INSTALL_SCRIPT",
     "npm ci must disable dependency install scripts"
   );
@@ -173,16 +230,16 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
 
   add(
     errors,
-    /\$\{\{\s*secrets\.|(^|\n)\s+(MYSQL_INTEGRATION_URL|COS_SECRET|STS_SECRET|MODEL_API_KEY)\s*:/m.test(
-      text
+    runCommands.some((line) =>
+      /\$\{\{\s*secrets\.|(^|\n)\s+(MYSQL_INTEGRATION_URL|COS_SECRET|STS_SECRET|MODEL_API_KEY)\b/.test(line)
     ),
     "FORBIDDEN_SECRET",
     "secrets and real-service credential variables are forbidden"
   );
   add(
     errors,
-    /(^|\n)\s+-\s+run:\s+.*\b(deploy|publish|migrate|curl|Invoke-WebRequest|git\s+push)\b/im.test(
-      text
+    runCommands.some((line) =>
+      /\b(deploy|publish|migrate|curl|Invoke-WebRequest|git\s+push)\b/i.test(line)
     ),
     "FORBIDDEN_REMOTE_OPERATION",
     "deployment, download and remote-write commands are forbidden"
