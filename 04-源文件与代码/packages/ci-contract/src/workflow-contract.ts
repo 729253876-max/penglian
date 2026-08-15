@@ -14,7 +14,9 @@ export type WorkflowContractCode =
   | "GATE_ORDER"
   | "FILTERED_TESTS"
   | "FORBIDDEN_SECRET"
-  | "FORBIDDEN_REMOTE_OPERATION";
+  | "FORBIDDEN_REMOTE_OPERATION"
+  | "FORBIDDEN_REMOTE_OPERATION_BLOCK"
+  | "FORBIDDEN_REMOTE_OPERATION_FOLDED";
 
 export interface WorkflowContractError {
   code: WorkflowContractCode;
@@ -35,9 +37,16 @@ const ALLOWED_ACTIONS = new Set([
   "actions/setup-node@7c2c68d20d402ed6a201ada70a81341941093140"
 ]);
 
-function collectRunCommands(source: string): string[] {
+type RunCommandStyle = "inline" | "block" | "folded";
+
+interface RunCommand {
+  text: string;
+  style: RunCommandStyle;
+}
+
+function collectRunCommands(source: string): RunCommand[] {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
-  const runs: string[] = [];
+  const runs: RunCommand[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
     const current = lines[index] ?? "";
@@ -50,7 +59,7 @@ function collectRunCommands(source: string): string[] {
     const inline = match[3]?.trim();
     if (!style) {
       if (inline) {
-        runs.push(inline);
+        runs.push({ text: inline, style: "inline" });
       }
       continue;
     }
@@ -77,16 +86,19 @@ function collectRunCommands(source: string): string[] {
     index -= 1;
     const command = blockLines.join("\n").trim();
     if (command) {
-      runs.push(command);
+      runs.push({
+        text: command,
+        style: style === "|" ? "block" : "folded",
+      });
     }
   }
 
   return runs;
 }
 
-function splitCommandLines(runs: string[]): string[] {
+function splitCommandLines(runs: readonly RunCommand[]): string[] {
   return runs.flatMap((run) =>
-    run
+    run.text
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
@@ -199,7 +211,8 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
   add(
     errors,
     runs.some(
-      (run) => run.startsWith("npm.cmd test") && run !== "npm.cmd test -- --run"
+      (run) =>
+        run.text.startsWith("npm.cmd test") && run.text !== "npm.cmd test -- --run"
     ),
     "FILTERED_TESTS",
     "Vitest must run without file or test filters"
@@ -221,7 +234,7 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
     add(
       errors,
       !new RegExp(
-        `run: ${commandPattern}\\n\\s+working-directory: ${directoryPattern}\\n`
+        `run: ${commandPattern}\n\\s+working-directory: ${directoryPattern}\n`
       ).test(text),
       "WRONG_WORKDIR",
       `${command} has the wrong working directory`
@@ -230,18 +243,42 @@ export function validateWorkflowContract(source: string): WorkflowContractError[
 
   add(
     errors,
-    runCommands.some((line) =>
-      /\$\{\{\s*secrets\.|(^|\n)\s+(MYSQL_INTEGRATION_URL|COS_SECRET|STS_SECRET|MODEL_API_KEY)\b/.test(line)
-    ),
+    /\$\{\{\s*secrets\./.test(text) ||
+      /(^|\n)\s*(MYSQL_INTEGRATION_URL|COS_SECRET|STS_SECRET|MODEL_API_KEY)\s*:/m.test(
+        text
+      ),
     "FORBIDDEN_SECRET",
     "secrets and real-service credential variables are forbidden"
   );
+
+  const remoteCommandLines = runs.flatMap((run) =>
+    splitCommandLines([run]).map((line) => ({ line, style: run.style }))
+  );
+  const remoteOperationPattern =
+    /\b(deploy|publish|migrate|curl|Invoke-WebRequest|git\s+push)\b/i;
+
   add(
     errors,
-    runCommands.some((line) =>
-      /\b(deploy|publish|migrate|curl|Invoke-WebRequest|git\s+push)\b/i.test(line)
+    remoteCommandLines.some(
+      (item) => item.style === "inline" && remoteOperationPattern.test(item.line)
     ),
     "FORBIDDEN_REMOTE_OPERATION",
+    "deployment, download and remote-write commands are forbidden"
+  );
+  add(
+    errors,
+    remoteCommandLines.some(
+      (item) => item.style === "block" && remoteOperationPattern.test(item.line)
+    ),
+    "FORBIDDEN_REMOTE_OPERATION_BLOCK",
+    "deployment, download and remote-write commands are forbidden"
+  );
+  add(
+    errors,
+    remoteCommandLines.some(
+      (item) => item.style === "folded" && remoteOperationPattern.test(item.line)
+    ),
+    "FORBIDDEN_REMOTE_OPERATION_FOLDED",
     "deployment, download and remote-write commands are forbidden"
   );
 
