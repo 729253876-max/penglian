@@ -43,13 +43,15 @@ export const PortraitProtectionSchema = z.enum([
   "COMPOSITION"
 ]);
 
-export const FidelityCheckSchema = z.enum([
+const FrozenFidelityChecks = [
   "FACE_COUNT",
   "IDENTITY",
   "STRUCTURE",
   "NON_TARGET_REGION",
   "ARTIFACTS"
-]);
+] as const;
+
+export const FidelityCheckSchema = z.enum(FrozenFidelityChecks);
 
 export const TaskFailureCodeSchema = z.enum([
   "PREVIEW_PROVIDER_FAILED",
@@ -126,7 +128,11 @@ const ParameterPayloadSchema = z.object({
   level: z.literal("MODERATE")
 }).strict();
 const QualityPassedPayloadSchema = z.object({
-  checks: z.array(FidelityCheckSchema).min(1)
+  checks: z.array(FidelityCheckSchema).refine(
+    (checks) => checks.length === FrozenFidelityChecks.length &&
+      new Set(checks).size === FrozenFidelityChecks.length &&
+      FrozenFidelityChecks.every((check) => checks.includes(check))
+  )
 }).strict();
 const QualityFailedPayloadSchema = z.object({
   checks: z.array(FidelityCheckSchema).min(1),

@@ -55,7 +55,9 @@ function successfulJournal(): EditTraceEvent[] {
     truthfulEvent(9, "PARAM_DIRECTION_APPLIED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.parameter.direction", { direction: "NATURAL_RESCUE", level: "MODERATE" }),
     truthfulEvent(10, "STAGE_COMPLETED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
     truthfulEvent(11, "QUALITY_CHECK_STARTED", "QUALITY", "QUALITY_GATE", "quality.started", {}),
-    truthfulEvent(12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", { checks: ["IDENTITY"] }),
+    truthfulEvent(12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", {
+      checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+    }),
     truthfulEvent(13, "PREVIEW_READY", "DELIVERY", "QUALITY_GATE", "preview.ready", { watermarked: true, downloadable: false })
   ];
 }

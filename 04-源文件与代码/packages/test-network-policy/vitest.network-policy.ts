@@ -1,11 +1,41 @@
 import http from "node:http";
 import https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
+import tls from "node:tls";
+
+type NativeHttpNamedExports = Pick<typeof http, "get" | "request">;
+type NativeHttpsNamedExports = Pick<typeof https, "get" | "request">;
+type TestRuntime = typeof globalThis & {
+  fetch: typeof fetch;
+  testNetworkPolicyNativeNamedExports?: {
+    http: NativeHttpNamedExports;
+    https: NativeHttpsNamedExports;
+  };
+};
+const TEST_RUNTIME = globalThis as TestRuntime;
+
+async function loadNativeNamedExports<T>(
+  specifier: "node:http" | "node:https"
+): Promise<T> {
+  const source = `import { get, request } from "${specifier}"; export { get, request };`;
+  return import(
+    /* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source)}`
+  ) as Promise<T>;
+}
+
+const nativeHttpNamedExports = await loadNativeNamedExports<NativeHttpNamedExports>(
+  "node:http"
+);
+const nativeHttpsNamedExports = await loadNativeNamedExports<NativeHttpsNamedExports>("node:https");
+TEST_RUNTIME.testNetworkPolicyNativeNamedExports = {
+  http: nativeHttpNamedExports,
+  https: nativeHttpsNamedExports
+};
 
 const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 const ERROR_CODE = "TEST_NETWORK_EGRESS_FORBIDDEN";
 type UnknownArgsFunction = (...args: unknown[]) => unknown;
-const TEST_RUNTIME = globalThis as { fetch: typeof fetch };
 
 const originalFetch = TEST_RUNTIME.fetch;
 const originalHttpRequest = http.request as UnknownArgsFunction;
@@ -14,6 +44,8 @@ const originalHttpsRequest = https.request as UnknownArgsFunction;
 const originalHttpsGet = https.get as UnknownArgsFunction;
 const originalNetConnect = net.connect as UnknownArgsFunction;
 const originalNetCreateConnection = net.createConnection as UnknownArgsFunction;
+const originalSocketConnect = net.Socket.prototype.connect as UnknownArgsFunction;
+const originalTlsConnect = tls.connect as UnknownArgsFunction;
 
 TEST_RUNTIME.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
   const url = resolveFetchInputAsUrl(input);
@@ -80,6 +112,26 @@ net.createConnection = ((...args: unknown[]) => {
   return originalNetCreateConnection(...args);
 }) as typeof net.createConnection;
 
+net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]) {
+  const target = parseSocketTarget(args);
+  const violation = assertLocalTarget(target.host, target.host);
+  if (violation) {
+    throw violation;
+  }
+  return originalSocketConnect.apply(this, args);
+} as typeof net.Socket.prototype.connect;
+
+tls.connect = ((...args: unknown[]) => {
+  const target = parseSocketTarget(args);
+  const violation = assertLocalTarget(target.host, target.host);
+  if (violation) {
+    throw violation;
+  }
+  return originalTlsConnect(...args);
+}) as typeof tls.connect;
+
+syncBuiltinESMExports();
+
 function normalizeHttpTarget(
   input: unknown,
   fallback: unknown
@@ -102,6 +154,10 @@ function normalizeHttpTarget(
 }
 
 function parseNetTarget(args: Parameters<typeof net.createConnection>): { host?: string | undefined } {
+  return parseSocketTarget(args);
+}
+
+function parseSocketTarget(args: readonly unknown[]): { host?: string | undefined } {
   if (typeof args[0] === "number") {
     return { host: typeof args[1] === "string" ? args[1] : undefined };
   }

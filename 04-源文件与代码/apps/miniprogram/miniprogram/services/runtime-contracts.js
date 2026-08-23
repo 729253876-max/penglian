@@ -46,6 +46,12 @@ function isEnumArray(value, allowed, allowEmpty = false) {
     return Array.isArray(value) && (allowEmpty || value.length > 0) &&
         value.every((item) => typeof item === "string" && allowed.has(item));
 }
+function isCompleteFrozenFidelityCheckSet(value) {
+    return Array.isArray(value) && value.length === fidelityChecks.size &&
+        value.every((item) => typeof item === "string" && fidelityChecks.has(item)) &&
+        new Set(value).size === fidelityChecks.size &&
+        [...fidelityChecks].every((check) => value.includes(check));
+}
 const emptyPayload = (value) => isRecord(value) && hasExactlyKeys(value, []);
 const eventRules = {
     ASSET_APPROVED: {
@@ -92,7 +98,7 @@ const eventRules = {
     QUALITY_CHECK_PASSED: {
         phase: "QUALITY", copyKey: "quality.fidelity.passed", evidenceSources: ["QUALITY_GATE"],
         validatePayload: (value) => isRecord(value) && hasExactlyKeys(value, ["checks"]) &&
-            isEnumArray(value.checks, fidelityChecks)
+            isCompleteFrozenFidelityCheckSet(value.checks)
     },
     QUALITY_CHECK_FAILED: {
         phase: "QUALITY", copyKey: "quality.fidelity.failed", evidenceSources: ["QUALITY_GATE"],

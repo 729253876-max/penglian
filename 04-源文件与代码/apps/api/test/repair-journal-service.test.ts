@@ -15,7 +15,9 @@ const payloads: Record<EventType, EditTraceEvent["payload"]> = {
   PARAM_DIRECTION_APPLIED: { direction: "NATURAL_RESCUE", level: "MODERATE" },
   STAGE_COMPLETED: { stage: "LOCAL_LIGHT_AND_SKIN" },
   QUALITY_CHECK_STARTED: {},
-  QUALITY_CHECK_PASSED: { checks: ["IDENTITY"] },
+  QUALITY_CHECK_PASSED: {
+    checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+  },
   QUALITY_CHECK_FAILED: { checks: ["IDENTITY"], failedChecks: ["IDENTITY"] },
   RETRY_STARTED: { attempt: 2 },
   PREVIEW_READY: { watermarked: true, downloadable: false },

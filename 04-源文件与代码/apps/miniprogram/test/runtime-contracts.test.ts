@@ -59,6 +59,39 @@ describe("mini-program runtime contracts", () => {
   });
 
   it.each([
+    ["FACE_COUNT", ["IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["IDENTITY", ["FACE_COUNT", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["STRUCTURE", ["FACE_COUNT", "IDENTITY", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["NON_TARGET_REGION", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS"]],
+    ["ARTIFACTS", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION"]],
+    ["a duplicate", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS", "ARTIFACTS"]],
+    ["an invalid check", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "UNKNOWN"]]
+  ])("rejects an incomplete, duplicate, or invalid passed quality set: %s", (_name, checks) => {
+    expect(() => parseEditTraceEvent({
+      ...legalEvent,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: { checks }
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("accepts a passed quality event with the complete frozen set in a different order", () => {
+    const event = {
+      ...legalEvent,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: {
+        checks: ["ARTIFACTS", "NON_TARGET_REGION", "STRUCTURE", "IDENTITY", "FACE_COUNT"]
+      }
+    };
+    expect(parseEditTraceEvent(event)).toEqual(event);
+  });
+
+  it.each([
     ["PREVIEW_PROVIDER_FAILED", "QUALITY_GATE"],
     ["FIDELITY_GATE_FAILED", "SYSTEM_CHECK"],
     ["PORTRAIT_NOT_SUITABLE", "SYSTEM_CHECK"],

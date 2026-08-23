@@ -69,7 +69,9 @@ describe("edit trace policy", () => {
       phase: "QUALITY",
       evidenceSource: "QUALITY_GATE" as const,
       copyKey: "quality.fidelity.passed",
-      payload: { checks: ["IDENTITY" as const] }
+      payload: {
+        checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"] as const
+      }
     };
 
     expect(sanitizeProviderReceiptEvent(providerStage)).toEqual(providerStage);

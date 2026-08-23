@@ -467,12 +467,17 @@ export class TaskService {
       !value ||
       typeof value !== "object" ||
       Array.isArray(value) ||
+      isProxy(value) ||
       !Object.hasOwn(value, "passed")
     ) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
 
-    const passed = Reflect.get(value, "passed") as unknown;
+    const passedDescriptor = Reflect.getOwnPropertyDescriptor(value, "passed");
+    if (!passedDescriptor || !("value" in passedDescriptor)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const passed = passedDescriptor.value;
     if (typeof passed !== "boolean") {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
@@ -483,14 +488,26 @@ export class TaskService {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
 
-    const checks = this.snapshotCheckList(Reflect.get(value, "checks"));
+    const checksDescriptor = Reflect.getOwnPropertyDescriptor(value, "checks");
+    if (!checksDescriptor || !("value" in checksDescriptor)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const checks = this.snapshotCheckList(checksDescriptor.value);
     if (passed) {
+      if (!this.hasCompleteFrozenFidelityCheckSet(checks)) {
+        throw new Error("INVALID_QUALITY_GATE_RESULT");
+      }
       return { passed: true, checks };
     }
 
-    const failedChecks = this.snapshotCheckList(
-      Reflect.get(value, "failedChecks")
+    const failedChecksDescriptor = Reflect.getOwnPropertyDescriptor(
+      value,
+      "failedChecks"
     );
+    if (!failedChecksDescriptor || !("value" in failedChecksDescriptor)) {
+      throw new Error("INVALID_QUALITY_GATE_RESULT");
+    }
+    const failedChecks = this.snapshotCheckList(failedChecksDescriptor.value);
     if (!failedChecks.every((check) => checks.includes(check))) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
@@ -498,7 +515,7 @@ export class TaskService {
   }
 
   private snapshotCheckList(value: unknown): FidelityCheck[] {
-    if (!Array.isArray(value)) {
+    if (!Array.isArray(value) || isProxy(value)) {
       throw new Error("INVALID_QUALITY_GATE_RESULT");
     }
     const length = Reflect.get(value, "length") as unknown;
@@ -538,6 +555,14 @@ export class TaskService {
       snapshot.push(trustedCheck);
     }
     return snapshot;
+  }
+
+  private hasCompleteFrozenFidelityCheckSet(
+    checks: readonly FidelityCheck[]
+  ): boolean {
+    return checks.length === fidelityChecks.size &&
+      checks.every((check) => fidelityChecks.has(check)) &&
+      [...fidelityChecks].every((check) => checks.includes(check));
   }
 
   private async failTask(

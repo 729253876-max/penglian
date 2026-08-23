@@ -51,7 +51,9 @@ function qualityPassed(eventId: string, sequence: number): EditTraceEvent {
     phase: "QUALITY",
     evidenceSource: "QUALITY_GATE",
     copyKey: "quality.fidelity.passed",
-    payload: { checks: ["IDENTITY"] }
+    payload: {
+      checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+    }
   } as EditTraceEvent;
 }
 
@@ -91,7 +93,9 @@ function successfulJournal(taskId = "task-1"): EditTraceEvent[] {
     truthfulEvent(taskId, 9, "PARAM_DIRECTION_APPLIED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.parameter.direction", { direction: "NATURAL_RESCUE", level: "MODERATE" }),
     truthfulEvent(taskId, 10, "STAGE_COMPLETED", "RETOUCH", "PROVIDER_RECEIPT", "portrait.stage.retouch.completed", { stage: "LOCAL_LIGHT_AND_SKIN" }),
     truthfulEvent(taskId, 11, "QUALITY_CHECK_STARTED", "QUALITY", "QUALITY_GATE", "quality.started", {}),
-    truthfulEvent(taskId, 12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", { checks: ["IDENTITY"] }),
+    truthfulEvent(taskId, 12, "QUALITY_CHECK_PASSED", "QUALITY", "QUALITY_GATE", "quality.fidelity.passed", {
+      checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+    }),
     truthfulEvent(taskId, 13, "PREVIEW_READY", "DELIVERY", "QUALITY_GATE", "preview.ready", { watermarked: true, downloadable: false })
   ];
 }

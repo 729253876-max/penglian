@@ -417,6 +417,46 @@ describe("task contracts", () => {
     }).evidenceSource).toBe("SYSTEM_CHECK");
   });
 
+  it.each([
+    ["FACE_COUNT", ["IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["IDENTITY", ["FACE_COUNT", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["STRUCTURE", ["FACE_COUNT", "IDENTITY", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["NON_TARGET_REGION", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS"]],
+    ["ARTIFACTS", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION"]],
+    ["a duplicate", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS", "ARTIFACTS"]],
+    ["an invalid check", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "UNKNOWN"]]
+  ])("rejects an incomplete, duplicate, or invalid passed quality set: %s", (_name, checks) => {
+    expect(EditTraceEventSchema.safeParse({
+      eventId: "event-quality-passed",
+      taskId: "task-1",
+      sequence: 1,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      occurredAt: "2030-01-02T03:04:05.000Z",
+      visibility: "PREVIEW",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: { checks }
+    }).success).toBe(false);
+  });
+
+  it("accepts a passed quality event with the complete frozen set in a different order", () => {
+    expect(EditTraceEventSchema.safeParse({
+      eventId: "event-quality-passed",
+      taskId: "task-1",
+      sequence: 1,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      occurredAt: "2030-01-02T03:04:05.000Z",
+      visibility: "PREVIEW",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: {
+        checks: ["ARTIFACTS", "NON_TARGET_REGION", "STRUCTURE", "IDENTITY", "FACE_COUNT"]
+      }
+    }).success).toBe(true);
+  });
+
   it("rejects provider-owned quality or delivery claims", () => {
     for (const event of [
       {

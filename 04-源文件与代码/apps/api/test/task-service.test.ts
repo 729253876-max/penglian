@@ -343,12 +343,47 @@ describe("TaskService", () => {
     });
   });
 
+  it("fails closed when a passing quality gate omits frozen fidelity checks", async () => {
+    const service = new TaskService(
+      new InMemoryTaskRepository(),
+      new CountingImageProvider(),
+      new StageADemoAssetReader(),
+      undefined,
+      undefined,
+      undefined,
+      new SequenceQualityGate([{ passed: true, checks: ["IDENTITY"] }])
+    );
+    const created = await service.create(userId, portraitInput);
+
+    const finished = await service.confirmAndRunPreview(userId, created.taskId);
+    const events = await service.getEvents(userId, created.taskId, 0);
+
+    expect(finished).toMatchObject({
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    });
+    expect(finished.previewUrl).toBeUndefined();
+    expect(events.some((event) => event.type === "QUALITY_CHECK_PASSED")).toBe(false);
+    expect(events.some((event) => event.type === "PREVIEW_READY")).toBe(false);
+  });
+
   it.each([
     ["undefined", undefined],
     ["a non-boolean discriminant", { passed: "yes", checks: ["IDENTITY"] }],
     ["an unknown check", { passed: true, checks: ["UNKNOWN"] }],
     ["duplicate checks", { passed: true, checks: ["IDENTITY", "IDENTITY"] }],
     ["empty checks", { passed: true, checks: [] }],
+    ["an accessor-backed result", Object.defineProperty({
+      checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+    }, "passed", {
+      enumerable: true,
+      get: () => true
+    })],
+    ["a result Proxy", new Proxy({
+      passed: true,
+      checks: ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]
+    }, {})],
     ["failedChecks on a passing result", {
       passed: true,
       checks: ["IDENTITY"],
