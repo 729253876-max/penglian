@@ -87,6 +87,7 @@ describe("WeChat project configuration", () => {
     expect(appConfig.pages).toContain("pages/cases/index");
   });
 
+  // The 15s budget gives this full TypeScript program/emit and per-file comparison headroom under concurrent runners; it does not relax build correctness checks.
   it("keeps the checked-in JavaScript runtime synchronized with TypeScript", () => {
     const packageRoot = fileURLToPath(new URL("../", import.meta.url));
     const projectConfig = JSON.parse(
@@ -164,5 +165,5 @@ describe("WeChat project configuration", () => {
     } finally {
       rmSync(outputDirectory, { force: true, recursive: true });
     }
-  });
+  }, 15_000);
 });

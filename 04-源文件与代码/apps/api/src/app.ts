@@ -2,9 +2,6 @@ import Fastify, {
   type FastifyServerOptions,
   type preHandlerHookHandler
 } from "fastify";
-import { TaskService } from "./application/task-service.js";
-import { InMemoryTaskRepository } from "./infrastructure/in-memory-task-repository.js";
-import { MockImageProvider } from "./infrastructure/mock-image-provider.js";
 import {
   installAuthentication,
   type SessionAuthenticator
@@ -35,10 +32,7 @@ export interface Readiness {
 
 export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? false });
-  const service = options.service ?? new TaskService(
-    new InMemoryTaskRepository(),
-    new MockImageProvider()
-  );
+  const service = options.service ?? unavailableTaskService;
   const authenticate = options.sessionAuthenticator
     ? installAuthentication(app, options.sessionAuthenticator)
     : undefined;
@@ -81,3 +75,18 @@ export function buildApp(options: BuildAppOptions = {}) {
   }
   return app;
 }
+
+const unavailableTaskService: TaskApiService = {
+  create: async () => {
+    throw new Error("TASK_SERVICE_NOT_CONFIGURED");
+  },
+  confirmAndRunPreview: async () => {
+    throw new Error("TASK_SERVICE_NOT_CONFIGURED");
+  },
+  get: async () => {
+    throw new Error("TASK_SERVICE_NOT_CONFIGURED");
+  },
+  getEvents: async () => {
+    throw new Error("TASK_SERVICE_NOT_CONFIGURED");
+  }
+};

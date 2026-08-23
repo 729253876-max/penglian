@@ -17,6 +17,7 @@ import {
 } from "../miniprogram/services/upload";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
+const approvedAssetId = "22222222-2222-4222-8222-222222222222";
 const now = "2030-01-02T03:04:05.000Z";
 
 const session = vi.hoisted(() => ({
@@ -286,12 +287,43 @@ describe("bounded upload credential recovery", () => {
 });
 
 describe("safe upload presentation", () => {
+  it("keeps only a valid approved asset id in a continuable presentation", () => {
+    expect(presentUploadStatus({
+      sessionId,
+      state: "APPROVED",
+      assetId: approvedAssetId
+    })).toMatchObject({
+      phase: "READY",
+      assetId: approvedAssetId,
+      canContinue: true
+    });
+
+    expect(presentUploadStatus({
+      sessionId,
+      state: "APPROVED",
+      assetId: "invalid-asset-id"
+    } as never)).not.toHaveProperty("assetId");
+    expect(presentUploadStatus({
+      sessionId,
+      state: "APPROVED",
+      assetId: "invalid-asset-id"
+    } as never).canContinue).toBe(false);
+  });
+
+  it("never leaks an asset id from a non-approved status", () => {
+    expect(presentUploadStatus({
+      sessionId,
+      state: "REVIEWING",
+      assetId: approvedAssetId
+    } as never)).not.toHaveProperty("assetId");
+  });
+
   it.each([
     [{ sessionId, state: "UPLOADED" as const }, "PROCESSING", false],
     [{ sessionId, state: "NORMALIZING" as const }, "PROCESSING", false],
     [{ sessionId, state: "REVIEWING" as const }, "RECHECKING", false],
-    [{ sessionId, state: "APPROVED" as const, qualityWarning: false }, "READY", true],
-    [{ sessionId, state: "APPROVED" as const, qualityWarning: true }, "WARNING", true],
+    [{ sessionId, state: "APPROVED" as const, assetId: approvedAssetId, qualityWarning: false }, "READY", true],
+    [{ sessionId, state: "APPROVED" as const, assetId: approvedAssetId, qualityWarning: true }, "WARNING", true],
     [{ sessionId, state: "REJECTED" as const }, "FAILED", false],
     [{ sessionId, state: "FAILED" as const, failureCode: "IMAGE_SHORT_EDGE_TOO_SMALL" }, "FAILED", false],
     [{ sessionId, state: "EXPIRED" as const }, "FAILED", false],
@@ -322,7 +354,10 @@ describe("bounded upload polling", () => {
       signal: new AbortController().signal,
       wait: async (milliseconds) => { events.push(`wait:${milliseconds}`); },
       maxPolls: 3,
-      getStatus: async () => ({ sessionId, state: states.shift() ?? "APPROVED" })
+      getStatus: async () => {
+        const state = states.shift() ?? "APPROVED";
+        return state === "APPROVED" ? { sessionId, state, assetId: approvedAssetId } : { sessionId, state };
+      }
     });
 
     expect(result.phase).toBe("READY");

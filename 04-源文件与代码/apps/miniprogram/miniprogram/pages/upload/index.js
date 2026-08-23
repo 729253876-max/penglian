@@ -87,7 +87,8 @@ async function pollStoredSession(page, sessionId) {
             busy: false,
             error: uploadFailureMessage(error),
             canRetry: true,
-            canContinue: false
+            canContinue: false,
+            assetId: ""
         });
     }
     finally {
@@ -98,6 +99,7 @@ async function pollStoredSession(page, sessionId) {
 function applyPresentation(page, presentation) {
     page.setData({
         ...presentation,
+        assetId: presentation.assetId ?? "",
         busy: false,
         progress: presentation.phase === "READY" || presentation.phase === "WARNING" ? 100 : 72,
         error: presentation.phase === "FAILED" ? presentation.detail : ""
@@ -112,7 +114,8 @@ Page({
         detail: "原图仅用于本次处理",
         error: "",
         canRetry: false,
-        canContinue: false
+        canContinue: false,
+        assetId: ""
     },
     async onLoad() {
         const resume = readUploadResume();
@@ -151,7 +154,7 @@ Page({
     async choosePhoto() {
         if (this.data.busy)
             return;
-        this.setData({ busy: true, error: "", canRetry: false, canContinue: false });
+        this.setData({ busy: true, error: "", canRetry: false, canContinue: false, assetId: "" });
         try {
             const photo = await chooseOriginalPhoto();
             if (!photo) {
@@ -182,7 +185,8 @@ Page({
                 detail: "可以重新选择照片后再试。",
                 error: uploadFailureMessage(error),
                 canRetry: true,
-                canContinue: false
+                canContinue: false,
+                assetId: ""
             });
         }
     },
@@ -217,12 +221,16 @@ Page({
             detail: "原图仅用于本次处理",
             error: "",
             canRetry: false,
-            canContinue: false
+            canContinue: false,
+            assetId: ""
         });
     },
     continueEditing() {
-        if (!this.data.canContinue)
+        if (!this.data.canContinue || !validUuid(this.data.assetId))
             return;
-        wx.navigateTo({ url: "/pages/plan/index" });
+        wx.navigateTo({ url: `/pages/plan/index?assetId=${encodeURIComponent(this.data.assetId)}` });
     }
 });
+function validUuid(value) {
+    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}

@@ -111,9 +111,13 @@ export async function uploadSelectedPhoto(photo, dependencies = defaultUploadDep
 }
 export function presentUploadStatus(status) {
     if (status.state === "APPROVED") {
+        const assetId = validUuid(status.assetId);
+        if (!assetId) {
+            return presentation("FAILED", "照片资产未准备好", "照片资产校验未完成，请重新上传。本次未扣除免费次数或积分。", true, false);
+        }
         return status.qualityWarning
-            ? presentation("WARNING", "照片可以继续处理", "照片清晰度或曝光有限，仍可继续，但改善幅度可能受限。", true, true)
-            : presentation("READY", "照片已准备好", "安全检查已完成，可以继续精修。", false, true);
+            ? presentation("WARNING", "照片可以继续处理", "照片清晰度或曝光有限，仍可继续，但改善幅度可能受限。", true, true, assetId)
+            : presentation("READY", "照片已准备好", "安全检查已完成，可以继续精修。", false, true, assetId);
     }
     if (status.state === "REVIEWING") {
         return presentation("RECHECKING", "正在进一步检查", "照片正在进一步检查，完成后会自动更新。", false, false);
@@ -173,8 +177,15 @@ export function uploadFailureMessage(error) {
     }
     return "上传暂时没有完成，请检查网络后重试。本次未扣除免费次数或积分。";
 }
-function presentation(phase, title, detail, canRetry, canContinue) {
-    return { phase, title, detail, canRetry, canContinue };
+function presentation(phase, title, detail, canRetry, canContinue, assetId) {
+    return assetId
+        ? { phase, title, detail, canRetry, canContinue, assetId }
+        : { phase, title, detail, canRetry, canContinue };
+}
+function validUuid(value) {
+    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+        ? value
+        : undefined;
 }
 const imageDimensionFailures = new Set([
     "IMAGE_DIMENSIONS_INVALID",
@@ -330,10 +341,11 @@ function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function uuid(value) {
-    if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    const parsed = validUuid(value);
+    if (!parsed) {
         invalidResponse();
     }
-    return value;
+    return parsed;
 }
 function isoDate(value) {
     if (typeof value !== "string" || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value)

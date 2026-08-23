@@ -21,11 +21,10 @@ const taskSnapshot: TaskSnapshot = {
 const createInput: CreateTaskInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "asset-1",
-  direction: "NATURAL",
+  direction: "NATURAL_RESCUE",
   parameters: {
-    brightness: 0,
-    warmth: 0,
-    naturalness: 90
+    naturalness: 85,
+    detailLevel: 35
   }
 };
 
@@ -38,8 +37,9 @@ function event(eventId: string, sequence: number): EditTraceEvent {
     phase: "RETOUCH",
     occurredAt: "2026-07-24T00:00:00.000Z",
     visibility: "PREVIEW",
+    evidenceSource: "PROVIDER_RECEIPT",
     copyKey: "portrait.stage.retouch.started",
-    payload: {}
+    payload: { stage: "LOCAL_LIGHT_AND_SKIN" }
   };
 }
 

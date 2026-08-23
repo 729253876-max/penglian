@@ -14,6 +14,7 @@ interface UploadStatusRecord {
   expiresAt: Date;
   qualityWarning?: boolean;
   failureCode?: string;
+  normalizedAssetId?: string;
 }
 
 export interface UploadApplicationRepository {
@@ -78,6 +79,9 @@ export class UploadApplicationService {
     return {
       sessionId,
       state: session.state,
+      ...(session.state === "APPROVED" && session.normalizedAssetId !== undefined
+        ? { assetId: session.normalizedAssetId }
+        : {}),
       ...(session.qualityWarning !== undefined ? { qualityWarning: session.qualityWarning } : {}),
       ...(session.failureCode !== undefined ? { failureCode: session.failureCode } : {})
     };

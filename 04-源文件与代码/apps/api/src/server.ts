@@ -12,6 +12,13 @@ import { MySqlUploadRepository } from "./infrastructure/mysql-upload-repository.
 import type { ObjectStorage } from "./ports/object-storage.js";
 import { createMySqlReadiness } from "./infrastructure/mysql-readiness.js";
 import { WechatCodeGateway } from "./infrastructure/wechat-code-gateway.js";
+import { TaskService } from "./application/task-service.js";
+import { DeterministicPortraitDiagnosisService } from "./application/portrait-diagnosis-service.js";
+import { PortraitPlanService } from "./application/portrait-plan-service.js";
+import { FailClosedPortraitQualityGate } from "./application/portrait-quality-gate.js";
+import { InMemoryTaskRepository } from "./infrastructure/in-memory-task-repository.js";
+import { MySqlPortraitAssetReader } from "./infrastructure/mysql-portrait-asset-reader.js";
+import { UnavailableImageProvider } from "./infrastructure/unavailable-image-provider.js";
 import {
   createMySqlCurrentUserReader,
   createSessionAuthenticator,
@@ -50,6 +57,15 @@ export function buildProductionApp(
       pool as unknown as CurrentUserDatabase
     ),
     readiness: createMySqlReadiness(pool),
+    service: new TaskService(
+      new InMemoryTaskRepository(),
+      new UnavailableImageProvider(),
+      new MySqlPortraitAssetReader(pool),
+      undefined,
+      new DeterministicPortraitDiagnosisService(),
+      new PortraitPlanService(),
+      new FailClosedPortraitQualityGate()
+    ),
     ...(uploadService ? { uploadService } : {})
   });
 

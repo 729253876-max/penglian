@@ -35,6 +35,9 @@ function sendDomainError(reply: FastifyReply, error: unknown) {
       code: "STAGE_A_UNSUPPORTED_DEMO_INPUT"
     });
   }
+  if (message === "ASSET_NOT_APPROVED") {
+    return reply.code(422).send({ code: "ASSET_NOT_APPROVED" });
+  }
   return reply.code(500).send({ code: "INTERNAL_ERROR" });
 }
 

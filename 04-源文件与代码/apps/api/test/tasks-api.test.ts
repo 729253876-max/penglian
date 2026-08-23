@@ -2,17 +2,26 @@ import { describe, expect, it } from "vitest";
 import type { EditTraceEvent, TaskSnapshot } from "@photo-ai/contracts";
 import { buildApp, type BuildAppOptions } from "../src/app.js";
 import type { TaskApiService } from "../src/routes/tasks.js";
+import { StageADemoAssetReader, TaskService } from "../src/application/task-service.js";
+import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
+import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js";
 
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 } as const;
 
 function buildTaskApp(options: BuildAppOptions = {}) {
+  const demoAssetReader = new StageADemoAssetReader();
   const app = buildApp({
     ...options,
+    service: options.service ?? new TaskService(
+      new InMemoryTaskRepository(),
+      new MockImageProvider(),
+      demoAssetReader
+    ),
     sessionAuthenticator: {
       authenticate: async () => ({ userId: "task-api-user" })
     }
@@ -54,6 +63,44 @@ class ThrowingTaskService implements TaskApiService {
 }
 
 describe("tasks API", () => {
+  it("does not expose a demo task lifecycle when authentication is configured without a task service", async () => {
+    const app = buildApp({
+      sessionAuthenticator: { authenticate: async () => ({ userId: "user-1" }) }
+    });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks",
+        headers: { authorization: "Bearer production-like-token" },
+        payload: portraitInput
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ code: "INTERNAL_ERROR" });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    ["missing", new Error("ASSET_NOT_APPROVED")],
+    ["cross-user", new Error("ASSET_NOT_APPROVED")]
+  ])("returns a stable client error for a %s approved asset lookup", async (_case, error) => {
+    const app = buildTaskApp({ service: new ThrowingTaskService(error) });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/tasks",
+        payload: portraitInput
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({ code: "ASSET_NOT_APPROVED" });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates a portrait preview task", async () => {
     const app = buildTaskApp();
     try {
@@ -69,7 +116,7 @@ describe("tasks API", () => {
       expect(response.json()).toMatchObject({
         status: "AWAITING_CONFIRMATION",
         tool: "PORTRAIT_RETOUCH",
-        lastSequence: 3
+        lastSequence: 8
       });
     } finally {
       await app.close();
@@ -89,7 +136,7 @@ describe("tasks API", () => {
       expect(preview.json()).toMatchObject({
         taskId: task.taskId,
         status: "SUCCEEDED",
-        lastSequence: 9,
+        lastSequence: 14,
         previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
       });
 
@@ -101,7 +148,7 @@ describe("tasks API", () => {
       expect(read.json()).toMatchObject({
         taskId: task.taskId,
         status: "SUCCEEDED",
-        lastSequence: 9
+        lastSequence: 14
       });
     } finally {
       await app.close();
@@ -141,7 +188,7 @@ describe("tasks API", () => {
       "an unsupported portrait direction",
       {
         ...portraitInput,
-        direction: "WARM"
+        direction: "CLEAR_RESCUE"
       }
     ],
     [
@@ -150,7 +197,7 @@ describe("tasks API", () => {
         ...portraitInput,
         parameters: {
           ...portraitInput.parameters,
-          brightness: 25
+          detailLevel: 25
         }
       }
     ]
@@ -245,8 +292,8 @@ describe("tasks API", () => {
   });
 
   it.each([
-    ["zero", "0", 3],
-    ["an ordinary decimal integer", "2", 3]
+    ["zero", "0", 8],
+    ["an ordinary decimal integer", "2", 8]
   ])("accepts afterSequence %s", async (_name, afterSequence, nextSequence) => {
     const app = buildTaskApp();
     try {
@@ -274,18 +321,23 @@ describe("tasks API", () => {
       expect(incremental.statusCode).toBe(200);
       expect(incremental.json()).toMatchObject({
         items: [
-          { sequence: 2, type: "DIAGNOSIS_FINDING" },
-          { sequence: 3, type: "PLAN_READY" }
+          { sequence: 2, type: "DIAGNOSIS_STARTED" },
+          { sequence: 3, type: "DIAGNOSIS_FINDING" },
+          { sequence: 4, type: "DIAGNOSIS_FINDING" },
+          { sequence: 5, type: "PROTECTION_RECORDED" },
+          { sequence: 6, type: "PLAN_READY" },
+          { sequence: 7, type: "PLAN_READY" },
+          { sequence: 8, type: "PLAN_SELECTED" }
         ],
-        nextSequence: 3
+        nextSequence: 8
       });
 
       const empty = await app.inject({
         method: "GET",
-        url: `/v1/tasks/${task.taskId}/events?afterSequence=3`
+        url: `/v1/tasks/${task.taskId}/events?afterSequence=8`
       });
       expect(empty.statusCode).toBe(200);
-      expect(empty.json()).toEqual({ items: [], nextSequence: 3 });
+      expect(empty.json()).toEqual({ items: [], nextSequence: 8 });
     } finally {
       await app.close();
     }
@@ -309,8 +361,23 @@ describe("tasks API", () => {
         url: `/v1/tasks/${task.taskId}/events?afterSequence=0`
       });
       expect(events.statusCode).toBe(200);
-      expect(events.json().items).toHaveLength(9);
-      expect(events.json().nextSequence).toBe(9);
+      expect(events.json().items.map((event: EditTraceEvent) => event.type)).toEqual([
+        "ASSET_APPROVED",
+        "DIAGNOSIS_STARTED",
+        "DIAGNOSIS_FINDING",
+        "DIAGNOSIS_FINDING",
+        "PROTECTION_RECORDED",
+        "PLAN_READY",
+        "PLAN_READY",
+        "PLAN_SELECTED",
+        "STAGE_STARTED",
+        "PARAM_DIRECTION_APPLIED",
+        "STAGE_COMPLETED",
+        "QUALITY_CHECK_STARTED",
+        "QUALITY_CHECK_PASSED",
+        "PREVIEW_READY"
+      ]);
+      expect(events.json().nextSequence).toBe(14);
     } finally {
       await app.close();
     }

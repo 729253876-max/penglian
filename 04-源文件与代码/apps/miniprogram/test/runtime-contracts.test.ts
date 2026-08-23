@@ -1,0 +1,171 @@
+import { describe, expect, it } from "vitest";
+import {
+  parseEditTraceEvent,
+  parseTaskSnapshot
+} from "../miniprogram/services/runtime-contracts.js";
+
+const legalEvent = {
+  eventId: "event-1",
+  taskId: "task-1",
+  sequence: 1,
+  type: "ASSET_APPROVED",
+  phase: "UPLOAD",
+  occurredAt: "2030-01-02T03:04:05.000Z",
+  visibility: "PREVIEW",
+  evidenceSource: "SYSTEM_CHECK",
+  copyKey: "upload.asset.approved",
+  payload: { metadataRemoved: true }
+};
+
+describe("mini-program runtime contracts", () => {
+  it("accepts only the copy key paired with each ready plan direction", () => {
+    const clearPlan = {
+      ...legalEvent,
+      type: "PLAN_READY",
+      phase: "PLAN",
+      copyKey: "portrait.plan.clear",
+      payload: { direction: "CLEAR_RESCUE" }
+    };
+    expect(parseEditTraceEvent(clearPlan)).toEqual(clearPlan);
+    expect(() => parseEditTraceEvent({
+      ...clearPlan,
+      copyKey: "portrait.plan.natural"
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("parses a legal truthful trace event", () => {
+    expect(parseEditTraceEvent(legalEvent)).toEqual(legalEvent);
+  });
+
+  it("rejects a missing evidence source", () => {
+    const { evidenceSource: _omitted, ...event } = legalEvent;
+    expect(() => parseEditTraceEvent(event)).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("rejects unknown enum values and copy keys", () => {
+    expect(() => parseEditTraceEvent({ ...legalEvent, phase: "INTERNAL" }))
+      .toThrow("API_RESPONSE_INVALID");
+    expect(() => parseEditTraceEvent({ ...legalEvent, copyKey: "upload.asset.secret" }))
+      .toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("rejects extra and sensitive event or payload fields", () => {
+    expect(() => parseEditTraceEvent({ ...legalEvent, providerRawPayload: "secret" }))
+      .toThrow("API_RESPONSE_INVALID");
+    expect(() => parseEditTraceEvent({
+      ...legalEvent,
+      payload: { metadataRemoved: true, originalImageUrl: "https://secret.invalid" }
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it.each([
+    ["FACE_COUNT", ["IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["IDENTITY", ["FACE_COUNT", "STRUCTURE", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["STRUCTURE", ["FACE_COUNT", "IDENTITY", "NON_TARGET_REGION", "ARTIFACTS"]],
+    ["NON_TARGET_REGION", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS"]],
+    ["ARTIFACTS", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION"]],
+    ["a duplicate", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "ARTIFACTS", "ARTIFACTS"]],
+    ["an invalid check", ["FACE_COUNT", "IDENTITY", "STRUCTURE", "NON_TARGET_REGION", "UNKNOWN"]]
+  ])("rejects an incomplete, duplicate, or invalid passed quality set: %s", (_name, checks) => {
+    expect(() => parseEditTraceEvent({
+      ...legalEvent,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: { checks }
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("accepts a passed quality event with the complete frozen set in a different order", () => {
+    const event = {
+      ...legalEvent,
+      type: "QUALITY_CHECK_PASSED",
+      phase: "QUALITY",
+      evidenceSource: "QUALITY_GATE",
+      copyKey: "quality.fidelity.passed",
+      payload: {
+        checks: ["ARTIFACTS", "NON_TARGET_REGION", "STRUCTURE", "IDENTITY", "FACE_COUNT"]
+      }
+    };
+    expect(parseEditTraceEvent(event)).toEqual(event);
+  });
+
+  it.each([
+    ["PREVIEW_PROVIDER_FAILED", "QUALITY_GATE"],
+    ["FIDELITY_GATE_FAILED", "SYSTEM_CHECK"],
+    ["PORTRAIT_NOT_SUITABLE", "SYSTEM_CHECK"],
+    ["ASSET_NOT_APPROVED", "SYSTEM_CHECK"]
+  ])("rejects TASK_FAILED code %s from the wrong or non-terminal authority %s", (code, evidenceSource) => {
+    expect(() => parseEditTraceEvent({
+      ...legalEvent,
+      type: "TASK_FAILED",
+      phase: "DELIVERY",
+      evidenceSource,
+      copyKey: "preview.provider.failed",
+      payload: { code }
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+
+  it("strictly parses bounded portrait snapshots", () => {
+    const snapshot = {
+      taskId: "task-1",
+      status: "FAILED",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 8,
+      failureCode: "FIDELITY_GATE_FAILED",
+      diagnosis: {
+        findings: ["FACE_UNDEREXPOSED"],
+        protections: ["IDENTITY", "COMPOSITION"]
+      },
+      selectedDirection: "NATURAL_RESCUE",
+      noCharge: true
+    };
+    expect(parseTaskSnapshot(snapshot)).toEqual(snapshot);
+    expect(() => parseTaskSnapshot({ ...snapshot, failureCode: "UNKNOWN" }))
+      .toThrow("API_RESPONSE_INVALID");
+    expect(() => parseTaskSnapshot({ ...snapshot, extra: true }))
+      .toThrow("API_RESPONSE_INVALID");
+  });
+
+  it.each([
+    ["SUCCEEDED without preview", { status: "SUCCEEDED" }],
+    ["SUCCEEDED with failureCode", {
+      status: "SUCCEEDED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      failureCode: "FIDELITY_GATE_FAILED"
+    }],
+    ["SUCCEEDED with noCharge", {
+      status: "SUCCEEDED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      noCharge: true
+    }],
+    ["FAILED with preview", {
+      status: "FAILED",
+      previewUrl: "https://example.invalid/watermarked.jpg",
+      failureCode: "FIDELITY_GATE_FAILED",
+      noCharge: true
+    }],
+    ["FAILED without failureCode", { status: "FAILED", noCharge: true }],
+    ["FAILED without noCharge", {
+      status: "FAILED",
+      failureCode: "FIDELITY_GATE_FAILED"
+    }],
+    ["PROCESSING with preview", {
+      status: "PROCESSING",
+      previewUrl: "https://example.invalid/watermarked.jpg"
+    }],
+    ["PROCESSING with failureCode", {
+      status: "PROCESSING",
+      failureCode: "PREVIEW_PROVIDER_FAILED"
+    }],
+    ["PROCESSING with noCharge", { status: "PROCESSING", noCharge: true }]
+  ])("rejects the contradictory snapshot %s", (_name, terminalFields) => {
+    expect(() => parseTaskSnapshot({
+      taskId: "task-1",
+      tool: "PORTRAIT_RETOUCH",
+      lastSequence: 13,
+      ...terminalFields
+    })).toThrow("API_RESPONSE_INVALID");
+  });
+});

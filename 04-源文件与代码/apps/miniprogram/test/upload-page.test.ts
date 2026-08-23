@@ -40,6 +40,8 @@ afterEach(() => {
 });
 
 describe("private upload page", () => {
+  const approvedAssetId = "22222222-2222-4222-8222-222222222222";
+
   it("starts idle without reading a photo or exposing private fields", async () => {
     const page = pageInstance(await loadPage());
     expect(page.data).toMatchObject({ phase: "IDLE", busy: false, canRetry: false, canContinue: false });
@@ -121,6 +123,11 @@ describe("private upload page", () => {
     expect(wx.navigateTo).not.toHaveBeenCalled();
     page.data.canContinue = true;
     page.continueEditing();
-    expect(wx.navigateTo).toHaveBeenCalledWith({ url: "/pages/plan/index" });
+    expect(wx.navigateTo).not.toHaveBeenCalled();
+    page.data.assetId = approvedAssetId;
+    page.continueEditing();
+    expect(wx.navigateTo).toHaveBeenCalledWith({
+      url: `/pages/plan/index?assetId=${encodeURIComponent(approvedAssetId)}`
+    });
   });
 });

@@ -18,3 +18,4 @@
 .details { padding: 0; overflow: hidden; }
 .details-toggle { padding: 0 28rpx; color: #39343f; background: transparent; font-size: 28rpx; font-weight: 700; line-height: 92rpx; text-align: left; }
 .details-copy { padding: 0 28rpx 28rpx; color: #77727f; font-size: 24rpx; line-height: 1.6; }
+.trace-link { margin-top: 18rpx; color: #5744b2; background: #eeeaff; font-size: 25rpx; }

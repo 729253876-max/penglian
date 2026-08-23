@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
+import { StageADemoAssetReader, TaskService } from "../src/application/task-service.js";
+import { InMemoryTaskRepository } from "../src/infrastructure/in-memory-task-repository.js";
+import { MockImageProvider } from "../src/infrastructure/mock-image-provider.js";
 
 const portraitInput = {
   tool: "PORTRAIT_RETOUCH",
   inputAssetId: "demo-portrait-001",
-  direction: "NATURAL",
-  parameters: { brightness: 0, warmth: 0, naturalness: 80 }
+  direction: "NATURAL_RESCUE",
+  parameters: { naturalness: 85, detailLevel: 35 }
 } as const;
 const headers = {
   authorization: "Bearer fictional-http-smoke-token"
@@ -21,6 +24,11 @@ describe("real HTTP smoke on port 3100", () => {
 
   it("serves the stage-A task lifecycle over a real TCP listener", async () => {
     app = buildApp({
+      service: new TaskService(
+        new InMemoryTaskRepository(),
+        new MockImageProvider(),
+        new StageADemoAssetReader()
+      ),
       sessionAuthenticator: {
         authenticate: async () => ({ userId: "http-smoke-user" })
       }
@@ -38,7 +46,7 @@ describe("real HTTP smoke on port 3100", () => {
     expect(created).toMatchObject({
       status: "AWAITING_CONFIRMATION",
       tool: "PORTRAIT_RETOUCH",
-      lastSequence: 3
+      lastSequence: 8
     });
 
     const taskId = String(created.taskId);
@@ -52,7 +60,7 @@ describe("real HTTP smoke on port 3100", () => {
     expect(preview).toMatchObject({
       taskId,
       status: "SUCCEEDED",
-      lastSequence: 9,
+      lastSequence: 14,
       previewUrl: "https://example.invalid/demo-preview/portrait-natural.jpg"
     });
 
@@ -66,7 +74,7 @@ describe("real HTTP smoke on port 3100", () => {
     expect(read).toMatchObject({
       taskId,
       status: "SUCCEEDED",
-      lastSequence: 9
+      lastSequence: 14
     });
 
     const eventsResponse = await fetch(
@@ -76,12 +84,27 @@ describe("real HTTP smoke on port 3100", () => {
     const events = await eventsResponse.json();
 
     expect(eventsResponse.status).toBe(200);
-    expect(events.items).toHaveLength(9);
+    expect(events.items.map((event: { type: string }) => event.type)).toEqual([
+      "ASSET_APPROVED",
+      "DIAGNOSIS_STARTED",
+      "DIAGNOSIS_FINDING",
+      "DIAGNOSIS_FINDING",
+      "PROTECTION_RECORDED",
+      "PLAN_READY",
+      "PLAN_READY",
+      "PLAN_SELECTED",
+      "STAGE_STARTED",
+      "PARAM_DIRECTION_APPLIED",
+      "STAGE_COMPLETED",
+      "QUALITY_CHECK_STARTED",
+      "QUALITY_CHECK_PASSED",
+      "PREVIEW_READY"
+    ]);
     expect(events.items.at(-1)).toMatchObject({
-      sequence: 9,
+      sequence: 14,
       type: "PREVIEW_READY"
     });
-    expect(events.nextSequence).toBe(9);
+    expect(events.nextSequence).toBe(14);
 
     const oldPhotoResponse = await fetch("http://127.0.0.1:3100/v1/tasks", {
       method: "POST",

@@ -1,6 +1,6 @@
 import { getEvents, getTask, runPreview } from "../../services/api";
 import { mergeEvents } from "../../services/edit-trace";
-import { summarizeTrace } from "../../services/edit-trace-presentation";
+import { failureEvidence, presentTrace, successEvidence, summarizeTrace } from "../../services/edit-trace-presentation";
 const runtimes = new WeakMap();
 const reduceMotionStorageKey = "photo-ai:reduce-motion";
 const failureStatuses = new Set([
@@ -8,22 +8,6 @@ const failureStatuses = new Set([
     "REJECTED",
     "CANCELED"
 ]);
-const copy = {
-    "portrait.diagnosis.started": "正在分析照片的光线、肤质与主体结构",
-    "portrait.diagnosis.light": "检测到面部暗部与背景高光差异",
-    "portrait.plan.natural": "已制定保留真实肤质的自然精修方案",
-    "portrait.stage.retouch.started": "正在恢复人物局部光影与肤质层次",
-    "portrait.parameter.direction": "已应用适中的自然精修方向",
-    "portrait.stage.retouch.completed": "人物局部调整已完成",
-    "quality.started": "正在检查身份与非目标区域稳定性",
-    "quality.identity.failed": "身份一致性检查未通过，正在准备重试",
-    "portrait.retry.started": "已开始一次真实的质量重试",
-    "portrait.stage.retry.started": "正在重新处理未通过质量检查的阶段",
-    "quality.retry.started": "正在复查重试结果",
-    "quality.identity.passed": "人物身份一致性检查通过",
-    "preview.ready": "水印预览已生成",
-    "preview.provider.failed": "水印预览生成失败，任务已停止"
-};
 function clearTimers(runtime) {
     if (runtime.revealTimer) {
         clearTimeout(runtime.revealTimer);
@@ -40,10 +24,48 @@ function active(page, runtime, generation) {
         runtimes.get(page) === runtime;
 }
 function renderEvent(event) {
-    return {
-        ...event,
-        text: copy[event.copyKey]
-    };
+    return presentTrace([event])[0];
+}
+function validSequence(events, taskId) {
+    return events.every((event, index) => event.taskId === taskId && event.sequence === index + 1);
+}
+function sameJsonValue(left, right) {
+    if (Object.is(left, right))
+        return true;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        return Array.isArray(left) && Array.isArray(right) &&
+            left.length === right.length &&
+            left.every((item, index) => sameJsonValue(item, right[index]));
+    }
+    if (typeof left !== "object" || left === null ||
+        typeof right !== "object" || right === null) {
+        return false;
+    }
+    const leftRecord = left;
+    const rightRecord = right;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length &&
+        leftKeys.every((key, index) => key === rightKeys[index] && sameJsonValue(leftRecord[key], rightRecord[key]));
+}
+function sameEvent(left, right) {
+    return left.eventId === right.eventId &&
+        left.taskId === right.taskId &&
+        left.sequence === right.sequence &&
+        left.type === right.type &&
+        left.phase === right.phase &&
+        left.occurredAt === right.occurredAt &&
+        left.visibility === right.visibility &&
+        left.evidenceSource === right.evidenceSource &&
+        left.copyKey === right.copyKey &&
+        sameJsonValue(left.payload, right.payload);
+}
+function preservesAcceptedPrefix(accepted, incoming) {
+    return incoming.length >= accepted.length &&
+        accepted.every((event, index) => {
+            const candidate = incoming[index];
+            return candidate !== undefined && sameEvent(event, candidate);
+        });
 }
 function eventFailureCode(event) {
     if (event.type !== "TASK_FAILED" || !("code" in event.payload)) {
@@ -82,6 +104,7 @@ Page({
         failureCode: "",
         failureMessage: "",
         noChargeNote: "",
+        failedChecks: [],
         reduceMotion: false,
         error: ""
     },
@@ -107,7 +130,8 @@ Page({
             pollTimer: undefined,
             polling: false,
             starting: false,
-            stopPolling: false
+            stopPolling: false,
+            refetching: false
         };
         runtimes.set(page, runtime);
         this.setData({
@@ -124,6 +148,7 @@ Page({
             failureCode: "",
             failureMessage: "",
             noChargeNote: "",
+            failedChecks: [],
             reduceMotion: readReduceMotionPreference(),
             error: ""
         });
@@ -204,8 +229,15 @@ Page({
         if (!active(page, runtime, generation)) {
             return;
         }
-        this.acceptEvents(response.items, response.nextSequence, revealImmediately);
+        if (!this.acceptEvents(response.items, response.nextSequence, revealImmediately, true)) {
+            this.stopForInvalidJournal();
+            return;
+        }
         if (snapshot.status === "SUCCEEDED") {
+            if (!successEvidence(this.data.taskId, snapshot, response.items, response.nextSequence)) {
+                this.stopForInvalidJournal();
+                return;
+            }
             runtime.stopPolling = true;
             if (runtime.pollTimer) {
                 clearTimeout(runtime.pollTimer);
@@ -217,21 +249,56 @@ Page({
                     clearTimeout(runtime.revealTimer);
                     runtime.revealTimer = undefined;
                 }
-                this.setData({ ready: true, failed: false, error: "" });
             }
+            this.setData({ ready: true, failed: false, error: "" });
             return;
         }
-        const failureEvent = response.items.findLast((event) => event.type === "TASK_FAILED");
-        this.markFailed(snapshot.failureCode ??
-            (failureEvent ? eventFailureCode(failureEvent) : undefined) ??
-            snapshot.status);
+        const failure = failureEvidence(this.data.taskId, snapshot, response.items, response.nextSequence);
+        if (!failure) {
+            this.stopForInvalidJournal();
+            return;
+        }
+        this.markFailed(failure.code, snapshot, failure.failedChecks);
     },
-    acceptEvents(incoming, nextSequence, revealImmediately) {
+    acceptEvents(incoming, nextSequence, revealImmediately, fullJournal = false) {
         const runtime = runtimes.get(this);
         if (!runtime) {
-            return;
+            return false;
         }
-        const allEvents = mergeEvents(this.data.allEvents, incoming);
+        if (fullJournal && !preservesAcceptedPrefix(this.data.allEvents, incoming)) {
+            return false;
+        }
+        const candidate = fullJournal ? incoming : [...this.data.allEvents, ...incoming];
+        if (!validSequence(candidate, this.data.taskId) || nextSequence !== candidate.length) {
+            return false;
+        }
+        if (fullJournal) {
+            if (runtime.revealTimer) {
+                clearTimeout(runtime.revealTimer);
+                runtime.revealTimer = undefined;
+            }
+            runtime.pending = [];
+            const allEvents = [...incoming];
+            const revealAll = revealImmediately || this.data.reduceMotion;
+            const visibleCount = revealAll
+                ? allEvents.length
+                : Math.min(this.data.visibleEvents.length, allEvents.length);
+            const visibleEvents = allEvents.slice(0, visibleCount).map(renderEvent);
+            runtime.pending = allEvents.slice(visibleCount).map(renderEvent);
+            this.setData({
+                allEvents,
+                visibleEvents,
+                traceSummary: summarizeTrace(allEvents),
+                latestEvent: allEvents.length > 0
+                    ? renderEvent(allEvents[allEvents.length - 1])
+                    : undefined,
+                lastSequence: nextSequence
+            });
+            if (!revealAll)
+                this.revealNext();
+            return true;
+        }
+        const allEvents = fullJournal ? [...incoming] : mergeEvents(this.data.allEvents, incoming);
         this.setData({
             allEvents,
             traceSummary: summarizeTrace(allEvents),
@@ -242,7 +309,7 @@ Page({
         });
         if (revealImmediately || this.data.reduceMotion) {
             this.flushPendingEvents();
-            return;
+            return true;
         }
         const seen = new Set([...this.data.visibleEvents, ...runtime.pending]
             .map((item) => item.eventId));
@@ -256,6 +323,56 @@ Page({
         })
             .map(renderEvent));
         this.revealNext();
+        return true;
+    },
+    stopForInvalidJournal() {
+        const runtime = runtimes.get(this);
+        if (!runtime)
+            return;
+        runtime.stopPolling = true;
+        runtime.refetching = false;
+        runtime.pending = [];
+        clearTimers(runtime);
+        this.setData({ ready: false, error: "修复记录暂时不完整，请稍后返回重试。" });
+    },
+    async handleAcceptedJournalOrContinue(items, generation) {
+        const page = this;
+        const runtime = runtimes.get(page);
+        if (!runtime || !active(page, runtime, generation))
+            return;
+        const failureEvent = items.find((item) => item.type === "TASK_FAILED");
+        if (failureEvent) {
+            const snapshot = await getTask(this.data.taskId);
+            if (!active(page, runtime, generation))
+                return;
+            const failure = failureEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence);
+            if (!failure) {
+                this.stopForInvalidJournal();
+                return;
+            }
+            this.markFailed(failure.code, snapshot, failure.failedChecks);
+            return;
+        }
+        if (items.some((item) => item.type === "PREVIEW_READY")) {
+            const snapshot = await getTask(this.data.taskId);
+            if (!active(page, runtime, generation))
+                return;
+            if (!successEvidence(this.data.taskId, snapshot, this.data.allEvents, this.data.lastSequence)) {
+                this.stopForInvalidJournal();
+                return;
+            }
+            runtime.stopPolling = true;
+            this.flushPendingEvents();
+            this.setData({ status: snapshot.status, ready: true, error: "" });
+            return;
+        }
+        if (runtime.pollTimer)
+            clearTimeout(runtime.pollTimer);
+        runtime.pollTimer = setTimeout(() => {
+            runtime.pollTimer = undefined;
+            if (active(page, runtime, generation))
+                void this.poll();
+        }, 500);
     },
     async poll() {
         const page = this;
@@ -273,33 +390,49 @@ Page({
             if (!active(page, runtime, generation)) {
                 return;
             }
-            const failureEvent = response.items.find((item) => item.type === "TASK_FAILED");
-            if (failureEvent) {
-                this.acceptEvents(response.items, response.nextSequence, true);
-                this.markFailed(eventFailureCode(failureEvent) ?? "TASK_FAILED");
-                return;
-            }
-            this.acceptEvents(response.items, response.nextSequence, false);
-            if (response.items.some((item) => item.type === "PREVIEW_READY")) {
-                runtime.stopPolling = true;
-                if (runtime.pollTimer) {
-                    clearTimeout(runtime.pollTimer);
-                    runtime.pollTimer = undefined;
+            if (!this.acceptEvents(response.items, response.nextSequence, false)) {
+                if (runtime.refetching) {
+                    this.stopForInvalidJournal();
+                    return;
                 }
-                return;
-            }
-            if (runtime.pollTimer) {
-                clearTimeout(runtime.pollTimer);
-            }
-            runtime.pollTimer = setTimeout(() => {
-                runtime.pollTimer = undefined;
-                if (active(page, runtime, generation)) {
-                    void this.poll();
+                runtime.refetching = true;
+                this.setData({ error: "修复记录暂时不完整，正在重新同步。" });
+                const full = await getEvents(this.data.taskId, 0);
+                if (!active(page, runtime, generation))
+                    return;
+                if (!this.acceptEvents(full.items, full.nextSequence, false, true)) {
+                    this.stopForInvalidJournal();
+                    return;
                 }
-            }, 500);
+                runtime.refetching = false;
+                this.setData({ error: "" });
+                response.items = full.items;
+                response.nextSequence = full.nextSequence;
+            }
+            await this.handleAcceptedJournalOrContinue(response.items, generation);
         }
-        catch {
+        catch (error) {
             if (active(page, runtime, generation)) {
+                if (error instanceof Error && error.message === "API_RESPONSE_INVALID" && !runtime.refetching) {
+                    runtime.refetching = true;
+                    try {
+                        const full = await getEvents(this.data.taskId, 0);
+                        if (!active(page, runtime, generation))
+                            return;
+                        if (!this.acceptEvents(full.items, full.nextSequence, false, true)) {
+                            this.stopForInvalidJournal();
+                            return;
+                        }
+                        runtime.refetching = false;
+                        this.setData({ error: "" });
+                        await this.handleAcceptedJournalOrContinue(full.items, generation);
+                        return;
+                    }
+                    catch {
+                        this.stopForInvalidJournal();
+                        return;
+                    }
+                }
                 this.setData({
                     error: "无法获取精修进度，请检查网络或本地 API 后重试。"
                 });
@@ -336,7 +469,7 @@ Page({
             runtime.pending.shift();
             this.setData({
                 visibleEvents: [...this.data.visibleEvents, next],
-                ready: next.type === "PREVIEW_READY" || this.data.ready
+                ready: this.data.ready
             });
             this.revealNext();
         }, 420);
@@ -354,8 +487,7 @@ Page({
         const visibleEvents = this.data.allEvents.map(renderEvent);
         this.setData({
             visibleEvents,
-            ready: visibleEvents.some((event) => event.type === "PREVIEW_READY") ||
-                this.data.ready
+            ready: this.data.ready
         });
     },
     toggleReduceMotion(event) {
@@ -369,7 +501,7 @@ Page({
     toggleAllEvents() {
         this.setData({ showAllEvents: !this.data.showAllEvents });
     },
-    markFailed(failureCode) {
+    markFailed(failureCode, snapshot, failedCheckCodes = []) {
         const runtime = runtimes.get(this);
         if (!runtime) {
             return;
@@ -377,19 +509,31 @@ Page({
         runtime.stopPolling = true;
         runtime.pending = [];
         clearTimers(runtime);
+        const labels = {
+            FACE_COUNT: "人物数量", IDENTITY: "人物身份", STRUCTURE: "五官与身体结构",
+            NON_TARGET_REGION: "非目标区域", ARTIFACTS: "伪影与生成细节"
+        };
+        const failedChecks = failedCheckCodes.map((check) => labels[check] ?? check);
         this.setData({
             status: "FAILED",
             ready: false,
             failed: true,
             failureCode,
-            failureMessage: "本次水印预览未生成，任务已稳定停止。",
-            noChargeNote: "阶段 A 示例任务不产生支付或积分扣费。",
+            failureMessage: failureCode === "FIDELITY_GATE_FAILED"
+                ? "无法在保持本人特征的前提下完成。"
+                : failureCode === "PREVIEW_PROVIDER_FAILED"
+                    ? "处理服务暂时不可用，未生成可查看预览。"
+                    : "本次水印预览未生成，任务已稳定停止。",
+            failedChecks,
+            noChargeNote: snapshot?.noCharge === true
+                ? "本次未生成可查看预览，不扣免费次数或积分。"
+                : "",
             error: ""
         });
     },
     openPreview() {
         wx.navigateTo({
-            url: `/pages/preview/index?taskId=${this.data.taskId}`
+            url: `/pages/preview/index?taskId=${encodeURIComponent(this.data.taskId)}`
         });
     },
     retry() {

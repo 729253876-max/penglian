@@ -1,0 +1,9 @@
+{
+  "name": "@photo-ai/test-network-policy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}

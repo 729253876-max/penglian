@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { WechatCodeGateway } from "../src/infrastructure/wechat-code-gateway.js";
@@ -672,10 +672,101 @@ describe("production server assembly", () => {
   it("listens on the loaded host and port with a live production assembly", async () => {
     const probe = await runLiveServerProbe();
 
-    expect(probe).toEqual({
-      statusCode: 200,
-      body: { status: "live" }
+    expect(probe.statusCode).toBe(200);
+    expect(probe.body).toMatchObject({
+      status: "live",
+      __probe__: {
+        childClosed: true
+      }
     });
+  });
+
+  it("captures stderr and the exit code when the live server exits before ready", async () => {
+    const probe = await runLiveServerProbe({
+      args: ["--eval", "process.stderr.write('CONTROLLED_EARLY_EXIT\\n'); process.exit(17)"],
+      maxWaitMs: 1_000
+    });
+
+    expect(probe).toMatchObject({
+      statusCode: null,
+      body: {
+        code: "LIVE_SERVER_PROBE_TIMEOUT",
+        reason: "process-exited-before-ready",
+        exitCode: 17,
+        stderr: "CONTROLLED_EARLY_EXIT",
+        childClosed: true
+      }
+    });
+  });
+
+  it("returns spawn errors before the readiness deadline", async () => {
+    const maxWaitMs = 1_000;
+    const startedAt = Date.now();
+    const probe = await runLiveServerProbe({
+      command: "__controlled_missing_live_probe_command__",
+      maxWaitMs
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(maxWaitMs / 2);
+    expect(probe).toMatchObject({
+      statusCode: null,
+      body: {
+        code: "LIVE_SERVER_PROBE_TIMEOUT",
+        reason: "spawn-error",
+        exitCode: expect.any(Number),
+        childClosed: true
+      }
+    });
+  });
+
+  it("waits for child close before returning a timeout result", async () => {
+    const probe = await runLiveServerProbe({
+      args: ["--eval", "setInterval(() => {}, 1_000)"],
+      maxWaitMs: 100
+    });
+
+    expect(probe).toMatchObject({
+      statusCode: null,
+      body: {
+        code: "LIVE_SERVER_PROBE_TIMEOUT",
+        reason: "timeout",
+        childClosed: true
+      }
+    });
+  });
+
+  it("cancels the close wait timer when the child closes", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveClosed: (() => void) | undefined;
+      const closed = new Promise<void>((resolve) => { resolveClosed = resolve; });
+      const waiting = waitForClose(closed, () => false, 1_000);
+
+      expect(vi.getTimerCount()).toBe(1);
+      resolveClosed?.();
+      await waiting;
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels the close wait timer when close rejects", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectClosed: ((reason?: unknown) => void) | undefined;
+      const closed = new Promise<void>((_resolve, reject) => { rejectClosed = reject; });
+      const waiting = waitForClose(closed, () => false, 1_000);
+
+      expect(vi.getTimerCount()).toBe(1);
+      rejectClosed?.(new Error("CONTROLLED_CLOSE_REJECTION"));
+      await expect(waiting).rejects.toThrow("CONTROLLED_CLOSE_REJECTION");
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1029,42 +1120,163 @@ async function runServerImportProbe(): Promise<{
   });
 }
 
-async function runLiveServerProbe(): Promise<{
+type LiveServerProbeOptions = {
+  command?: string;
+  args?: string[];
+  maxWaitMs?: number;
+};
+
+async function runLiveServerProbe(options: LiveServerProbeOptions = {}): Promise<{
   statusCode: number | null;
   body: unknown;
 }> {
   const port = await availablePort();
-  const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-    cwd: apiDirectory,
-    env: {
-      ...process.env,
-      NODE_ENV: "test",
-      PORT: String(port),
-      MYSQL_URL: "mysql://fictional-user:fictional-password@127.0.0.1/fictional-db",
-      WECHAT_APP_ID: "wx4f7678cc595d276b",
-      WECHAT_APP_SECRET: "fictional-runtime-app-secret",
-      IDENTITY_LOOKUP_KEY: "11".repeat(32),
-      IDENTITY_ENCRYPTION_KEY: "22".repeat(32)
-    },
-    stdio: "ignore"
+  const environment = {
+    NODE_ENV: "test",
+    PORT: String(port),
+    MYSQL_URL: "mysql://fictional-user:fictional-password@127.0.0.1/fictional-db",
+    WECHAT_APP_ID: "wx4f7678cc595d276b",
+    WECHAT_APP_SECRET: "fictional-runtime-app-secret",
+    IDENTITY_LOOKUP_KEY: "11".repeat(32),
+    IDENTITY_ENCRYPTION_KEY: "22".repeat(32)
+  };
+  const child = spawn(
+    options.command ?? process.execPath,
+    options.args ?? ["--import", "tsx", "src/server.ts"],
+    {
+      cwd: apiDirectory,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+
+  let exitCode: number | null = null;
+  let stdout = "";
+  let stderr = "";
+  let failure: string | null = null;
+  let terminalReason: "process-exited-before-ready" | "spawn-error" | null = null;
+  let childClosed = false;
+  let resolveTerminal: (() => void) | undefined;
+  const terminal = new Promise<void>((resolve) => { resolveTerminal = resolve; });
+  let resolveClosed: (() => void) | undefined;
+  const closed = new Promise<void>((resolve) => { resolveClosed = resolve; });
+  const start = Date.now();
+  const maxWaitMs = options.maxWaitMs ?? 8_000;
+  const deadline = start + maxWaitMs;
+
+  const appendOutput = (current: string, chunk: unknown) => {
+    const remaining = 4_096 - current.length;
+    return remaining > 0 ? current + String(chunk).slice(0, remaining) : current;
+  };
+  const cleanupChild = async () => {
+    if (!childClosed && child.exitCode === null && child.pid !== undefined) {
+      child.kill("SIGTERM");
+    }
+    await waitForClose(closed, () => childClosed, 1_000);
+    if (!childClosed && child.exitCode === null && child.pid !== undefined) {
+      child.kill("SIGKILL");
+      await waitForClose(closed, () => childClosed, 1_000);
+    }
+    if (!childClosed) {
+      throw new Error("LIVE_SERVER_PROBE_CHILD_DID_NOT_CLOSE");
+    }
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    stdout = appendOutput(stdout, chunk);
   });
-  const deadline = Date.now() + 2_000;
+  child.stderr?.on("data", (chunk) => {
+    stderr = appendOutput(stderr, chunk);
+  });
+  child.once("exit", (code) => {
+    exitCode = code;
+    terminalReason = "process-exited-before-ready";
+    resolveTerminal?.();
+  });
+  child.once("close", (code) => {
+    exitCode ??= code;
+    childClosed = true;
+    resolveClosed?.();
+  });
+  child.once("error", () => {
+    failure = "live probe spawn error";
+    terminalReason = "spawn-error";
+    resolveTerminal?.();
+  });
+
+  let result: { statusCode: number | null; body: Record<string, unknown> } | undefined;
   try {
-    while (Date.now() < deadline) {
-      if (child.exitCode !== null) {
-        break;
-      }
+    while (Date.now() < deadline && !terminalReason) {
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/health/live`);
-        return { statusCode: response.status, body: await response.json() };
+        const response = await fetch(`http://127.0.0.1:${port}/health/live`, {
+          signal: AbortSignal.timeout(200)
+        });
+        const body = await response.json();
+        result = {
+          statusCode: response.status,
+          body: body as Record<string, unknown>
+        };
+        break;
       } catch {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await Promise.race([wait(50), terminal]);
       }
     }
-    return { statusCode: null, body: null };
+    result ??= {
+      statusCode: null,
+      body: {
+        code: "LIVE_SERVER_PROBE_TIMEOUT",
+        reason: terminalReason ?? "timeout",
+        failure
+      }
+    };
   } finally {
-    child.kill();
+    await cleanupChild();
   }
+
+  const diagnostics = {
+    port,
+    retriesMs: Date.now() - start,
+    exitCode,
+    stdout: redactProbeOutput(stdout.trim(), environment),
+    stderr: redactProbeOutput(stderr.trim(), environment),
+    childClosed
+  };
+  if (result.statusCode !== null) {
+    return {
+      statusCode: result.statusCode,
+      body: { ...result.body, __probe__: diagnostics }
+    };
+  }
+  return { statusCode: null, body: { ...result.body, ...diagnostics } };
+}
+
+async function waitForClose(
+  closed: Promise<void>,
+  hasClosed: () => boolean,
+  timeoutMs: number
+): Promise<void> {
+  if (hasClosed()) return;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, timeoutMs);
+  });
+  try {
+    await Promise.race([closed, timedOut]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function wait(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+}
+
+function redactProbeOutput(output: string, environment: Record<string, string>): string {
+  return Object.values(environment)
+    .filter((value) => value.length > 0)
+    .reduce((redacted, value) => redacted.replaceAll(value, "[REDACTED]"), output);
 }
 
 async function availablePort(): Promise<number> {
